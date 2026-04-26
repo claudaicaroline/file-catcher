@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Jottacloud File Catcher</title>
+<title>Jotta File Catcher</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -461,7 +461,7 @@
     try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
     catch(e){ audioCtx = null; }
   }
-  function tone(freq, dur, type='square', vol=0.05) {
+  function tone(freq, dur, type='square', vol=0.022) {
     if (!audioCtx) return;
     const t = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
@@ -477,8 +477,8 @@
     // chiptune blip — slight pitch by file type; child cloud is one octave higher
     const base = { photo:880, folder:1175, document:587, video:988 }[type] || 880;
     const f = octaveUp ? base * 2 : base;
-    tone(f,        0.06, 'square', 0.05);
-    tone(f * 1.5,  0.05, 'square', 0.035);
+    tone(f,        0.06, 'square', 0.022);
+    tone(f * 1.5,  0.05, 'square', 0.014);
   }
   function bleepSad(octaveUp=false) {
     if (!audioCtx) return;
@@ -490,7 +490,7 @@
     const endF   = octaveUp ? 180 :  90;
     osc.frequency.setValueAtTime(startF, t);
     osc.frequency.exponentialRampToValueAtTime(endF, t + 0.55);
-    gain.gain.setValueAtTime(0.07, t);
+    gain.gain.setValueAtTime(0.028, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
     osc.connect(gain).connect(audioCtx.destination);
     osc.start(t); osc.stop(t + 0.65);
@@ -505,7 +505,7 @@
     o1.type = 'sawtooth';
     o1.frequency.setValueAtTime(660, t);
     o1.frequency.exponentialRampToValueAtTime(110, t + 1.3);
-    g1.gain.setValueAtTime(0.09, t);
+    g1.gain.setValueAtTime(0.036, t);
     g1.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
     o1.connect(g1).connect(audioCtx.destination);
     o1.start(t); o1.stop(t + 1.45);
@@ -515,7 +515,7 @@
     o2.type = 'triangle';
     o2.frequency.setValueAtTime(220, t + 0.05);
     o2.frequency.exponentialRampToValueAtTime(55, t + 1.2);
-    g2.gain.setValueAtTime(0.05, t + 0.05);
+    g2.gain.setValueAtTime(0.020, t + 0.05);
     g2.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
     o2.connect(g2).connect(audioCtx.destination);
     o2.start(t + 0.05); o2.stop(t + 1.45);
@@ -524,7 +524,7 @@
     const g3 = audioCtx.createGain();
     o3.type = 'sine';
     o3.frequency.setValueAtTime(70, t + 1.2);
-    g3.gain.setValueAtTime(0.09, t + 1.2);
+    g3.gain.setValueAtTime(0.036, t + 1.2);
     g3.gain.exponentialRampToValueAtTime(0.001, t + 1.7);
     o3.connect(g3).connect(audioCtx.destination);
     o3.start(t + 1.2); o3.stop(t + 1.75);
@@ -628,8 +628,8 @@
         const i  = musicStep % PIRATE_MELODY.length;
         const mn = PIRATE_MELODY[i];
         const bn = PIRATE_BASS[i];
-        scheduleMusicNote(NOTE_FREQ[mn], musicNextTime, STEP_S * 0.9, 'square',   0.040);
-        scheduleMusicNote(NOTE_FREQ[bn], musicNextTime, STEP_S * 1.6, 'triangle', 0.055);
+        scheduleMusicNote(NOTE_FREQ[mn], musicNextTime, STEP_S * 0.9, 'square',   0.022);
+        scheduleMusicNote(NOTE_FREQ[bn], musicNextTime, STEP_S * 1.6, 'triangle', 0.030);
         musicNextTime += STEP_S;
         musicStep++;
       }
@@ -730,6 +730,7 @@
     home5:     { name:'HOME • 5 TB (family)', limitTB:5,        bg:'living', multi:true  },
     pro:       { name:'PRO • 10 TB',          limitTB:10,       bg:'office', multi:false },
     unlimited: { name:'UNLIMITED',            limitTB:Infinity, bg:'mountain', multi:false },
+    capture:   { name:'CAPTURE / MINSKY',     limitTB:Infinity, bg:'capture',  multi:false },
   };
   const POINTS_PER_TB = 100;
 
@@ -760,6 +761,8 @@
       evaporateT: 0,
       evaporateParticles: [],
       deathReason: null,
+      // Optional play-area bounds (set by the capture tier)
+      bounds: null,
     };
   }
   function isMulti(){ return game.tier && TIERS[game.tier] && TIERS[game.tier].multi; }
@@ -845,9 +848,142 @@
 
   // ---------- Backgrounds (full-coverage base, then decorations) ----------
   function drawBackground(kind) {
-    if (kind === 'living')   drawLiving();
+    if (kind === 'living')      drawLiving();
     else if (kind === 'office') drawOffice();
-    else                     drawMountain();
+    else if (kind === 'capture') drawCaptureSky();
+    else                        drawMountain();
+  }
+
+  // ---------- Capture / MinSky: phone in landscape, sky inside ----------
+  // Phone screen rectangle (matches game.bounds for the capture tier).
+  const PHONE = { oX: 4, oY: 14, oW: 312, oH: 212, sX: 12, sY: 22, sW: 296, sH: 196 };
+
+  let captureBirds = [];
+  function makeBird(initial) {
+    const goingRight = Math.random() < 0.5;
+    return {
+      x: initial ? PHONE.sX + Math.random() * PHONE.sW
+                 : (goingRight ? PHONE.sX - 8 : PHONE.sX + PHONE.sW + 8),
+      y: PHONE.sY + 18 + Math.random() * (PHONE.sH * 0.55),
+      vx: goingRight ? (10 + Math.random() * 14) : -(10 + Math.random() * 14),
+      frame: Math.random() * 10,
+    };
+  }
+  function tickCaptureBirds(dt) {
+    if (captureBirds.length === 0) {
+      for (let i = 0; i < 6; i++) captureBirds.push(makeBird(true));
+    }
+    for (const b of captureBirds) {
+      b.x += b.vx * dt;
+      b.frame += dt;
+      const off = (b.vx > 0) ? (b.x > PHONE.sX + PHONE.sW + 10)
+                             : (b.x < PHONE.sX - 10);
+      if (off) Object.assign(b, makeBird(false));
+    }
+  }
+  function drawBird(x, y, frame, dir) {
+    const wingsUp = Math.floor(frame * 4) % 2 === 0;
+    if (wingsUp) {
+      // ^   ^
+      rect(x,   y,   1, 1, '#3b3552');
+      rect(x+1, y+1, 1, 1, '#3b3552');
+      rect(x+2, y+2, 1, 1, '#3b3552');
+      rect(x+3, y+1, 1, 1, '#3b3552');
+      rect(x+4, y,   1, 1, '#3b3552');
+    } else {
+      // ~   ~
+      rect(x,   y+1, 1, 1, '#3b3552');
+      rect(x+1, y+2, 1, 1, '#3b3552');
+      rect(x+2, y+1, 1, 1, '#3b3552');
+      rect(x+3, y+2, 1, 1, '#3b3552');
+      rect(x+4, y+1, 1, 1, '#3b3552');
+    }
+  }
+
+  function drawCaptureSky() {
+    // The "table" the phone sits on — a soft dark backdrop outside the phone.
+    rect(0, 0, W, H, '#26223a');
+    for (let y = 0; y < H; y += 4) rect(0, y, W, 1, '#1f1c30');
+
+    // Sky inside the phone screen — vertical gradient through blue hues.
+    for (let y = PHONE.sY; y < PHONE.sY + PHONE.sH; y++) {
+      const t = (y - PHONE.sY) / PHONE.sH;
+      let c;
+      if (t < 0.5)  c = blend('#bfe2ff', '#7ec6ff', t / 0.5);
+      else          c = blend('#7ec6ff', '#3a78c2', (t - 0.5) / 0.5);
+      rect(PHONE.sX, y, PHONE.sW, 1, c);
+    }
+
+    // Soft sun glow in the upper-right area
+    const sunX = PHONE.sX + PHONE.sW - 36, sunY = PHONE.sY + 28;
+    rect(sunX,   sunY,   8, 4, '#fff5e1');
+    rect(sunX-2, sunY+2, 12, 4, '#ffe7a3');
+    rect(sunX-1, sunY+6, 10, 2, '#ffd968');
+
+    // A few faint background clouds
+    drawTinyPlainCloud(PHONE.sX + 30,  PHONE.sY + 50);
+    drawTinyPlainCloud(PHONE.sX + 90,  PHONE.sY + 30);
+    drawTinyPlainCloud(PHONE.sX + 200, PHONE.sY + 60);
+
+    // Birds
+    for (const b of captureBirds) drawBird(b.x|0, b.y|0, b.frame, b.vx > 0 ? 1 : -1);
+  }
+
+  function drawCaptureFrame() {
+    const oX = PHONE.oX, oY = PHONE.oY, oW = PHONE.oW, oH = PHONE.oH;
+    const sX = PHONE.sX, sY = PHONE.sY, sW = PHONE.sW, sH = PHONE.sH;
+    const BODY = '#1a162e';
+    const TRIM = '#3b3552';
+    const ACCENT = '#5b5278';
+
+    // Bezels (top, bottom, left, right) — only the frame, not the screen
+    rect(oX, oY,         oW, sY - oY,                BODY);
+    rect(oX, sY + sH,    oW, oY + oH - (sY + sH),   BODY);
+    rect(oX, sY,         sX - oX, sH,               BODY);
+    rect(sX + sW, sY,    oX + oW - (sX + sW), sH,   BODY);
+
+    // Inner trim ring (like a screen border highlight)
+    rect(sX-1, sY-1, sW+2, 1, TRIM);
+    rect(sX-1, sY+sH, sW+2, 1, TRIM);
+    rect(sX-1, sY-1, 1, sH+2, TRIM);
+    rect(sX+sW, sY-1, 1, sH+2, TRIM);
+
+    // Rounded corner chamfers on the outer body
+    const corner = (cx, cy, dx, dy) => {
+      for (let i = 0; i < 4; i++) {
+        const len = 4 - i;
+        rect(cx + (dx<0 ? -i : 0), cy + (dy<0 ? -i : 0),
+             dx<0 ? len : len, 1, '#000');
+      }
+    };
+    // top-left
+    rect(oX,   oY,   4, 1, '#000'); rect(oX,   oY+1, 3, 1, '#000');
+    rect(oX,   oY+2, 2, 1, '#000'); rect(oX,   oY+3, 1, 1, '#000');
+    // top-right
+    rect(oX+oW-4, oY,   4, 1, '#000'); rect(oX+oW-3, oY+1, 3, 1, '#000');
+    rect(oX+oW-2, oY+2, 2, 1, '#000'); rect(oX+oW-1, oY+3, 1, 1, '#000');
+    // bottom-left
+    rect(oX,   oY+oH-1, 4, 1, '#000'); rect(oX,   oY+oH-2, 3, 1, '#000');
+    rect(oX,   oY+oH-3, 2, 1, '#000'); rect(oX,   oY+oH-4, 1, 1, '#000');
+    // bottom-right
+    rect(oX+oW-4, oY+oH-1, 4, 1, '#000'); rect(oX+oW-3, oY+oH-2, 3, 1, '#000');
+    rect(oX+oW-2, oY+oH-3, 2, 1, '#000'); rect(oX+oW-1, oY+oH-4, 1, 1, '#000');
+
+    // Camera + speaker on the LEFT short edge (where the top would be in portrait)
+    const lcy = oY + oH/2;
+    rect(oX + 3, lcy - 8, 2, 2, ACCENT);                 // camera lens
+    rect(oX + 4, lcy - 8, 1, 1, '#7a6cff');              // glint
+    rect(oX + 3, lcy - 3, 2, 8, ACCENT);                 // speaker grill
+    for (let i = 0; i < 3; i++) rect(oX + 4, lcy - 2 + i*3, 1, 1, BODY);
+    rect(oX + 3, lcy + 8, 2, 1, ACCENT);                 // mic dot
+
+    // Home indicator pill on the RIGHT short edge
+    rect(oX + oW - 5, lcy - 18, 2, 36, ACCENT);
+
+    // Volume + power buttons sticking out of the long edges
+    rect(oX + 32, oY - 1, 14, 1, ACCENT);
+    rect(oX + 50, oY - 1, 22, 1, ACCENT);
+    rect(oX + oW - 60, oY + oH, 28, 1, ACCENT);
   }
 
   function drawLiving() {
@@ -1548,7 +1684,9 @@
   // ---------- Spawn / Update ----------
   function spawn() {
     const def = pickFile();
-    const x = 4 + Math.random() * (W - def.w - 8);
+    const lo = (game.bounds ? game.bounds.left  : 0)  + 4;
+    const hi = (game.bounds ? game.bounds.right : W)  - 4 - def.w;
+    const x  = lo + Math.random() * Math.max(1, hi - lo);
     const speedMul = 1 + Math.min(2.0, game.score / (POINTS_PER_TB * 4));
     game.files.push({
       type: def.type, points: def.points, bad: !!def.bad,
@@ -1573,6 +1711,9 @@
     if (game.state === STATE.WELCOME || game.state === STATE.SUBHELP) {
       tickWelcomeClouds(dt);
     }
+
+    // Capture-tier birds animate whenever the tier is active
+    if (game.tier === 'capture') tickCaptureBirds(dt);
 
     if (game.state === STATE.PLAY) {
       // Decrement per-cloud timers
@@ -1771,12 +1912,16 @@
       if (leftPresses >= stepDivisor)  { game.cloud.x -= STEP; leftPresses = 0; }
       if (rightPresses >= stepDivisor) { game.cloud.x += STEP; rightPresses = 0; }
     }
-    game.cloud.x = Math.max(0, Math.min(W - game.cloud.w, game.cloud.x));
+    const bL = game.bounds ? game.bounds.left  : 0;
+    const bR = game.bounds ? game.bounds.right : W;
+    game.cloud.x = Math.max(bL, Math.min(bR - game.cloud.w, game.cloud.x));
   }
   function moveCloud2(dt) {
     if (keys2.left)  game.cloud2.x -= game.cloud2.speed * 60 * dt;
     if (keys2.right) game.cloud2.x += game.cloud2.speed * 60 * dt;
-    game.cloud2.x = Math.max(0, Math.min(W - game.cloud2.w, game.cloud2.x));
+    const bL = game.bounds ? game.bounds.left  : 0;
+    const bR = game.bounds ? game.bounds.right : W;
+    game.cloud2.x = Math.max(bL, Math.min(bR - game.cloud2.w, game.cloud2.x));
   }
 
   function spark(x,y){
@@ -1849,6 +1994,11 @@
       ctx.globalAlpha = Math.min(1, p.life);
       rect(p.x|0, p.y|0, p.size, p.size, p.color);
       ctx.globalAlpha = 1;
+    }
+
+    // Capture tier: phone bezel goes on top of everything inside the screen
+    if (game.tier === 'capture' && game.state !== STATE.WELCOME && game.state !== STATE.SUBHELP) {
+      drawCaptureFrame();
     }
 
     // Speech bubbles for the copyright trap (hidden during evaporation)
@@ -1977,14 +2127,14 @@
   function renderWelcomeUI(){
     ensureCard();
     const opts = [
-      { key:'home',      label:'HOME • 1 TB',  subtle:false },
-      { key:'home5',     label:'HOME • 5 TB',  subtle:false, tag:'multiplayer' },
-      { key:'pro',       label:'PRO • 10 TB',  subtle:false },
-      { key:'unlimited', label:'UNLIMITED',    subtle:false },
-      { key:'help',      label:"can't find your subscription?", subtle:true },
+      { key:'home',      label:'HOME • 1 TB',      subtle:false },
+      { key:'home5',     label:'HOME • 5 TB',      subtle:false, tag:'multiplayer' },
+      { key:'pro',       label:'PRO • 10 TB',      subtle:false },
+      { key:'unlimited', label:'UNLIMITED',        subtle:false },
+      { key:'capture',   label:'CAPTURE / MINSKY', subtle:false, tag:'mobile' },
     ];
     card.innerHTML = `
-      <h1>JOTTACLOUD FILE CATCHER</h1>
+      <h1>JOTTA FILE CATCHER</h1>
       <div class="sub">catch your files. fill the cloud.<br>watch out for pirated stuff.</div>
       <div class="section-heading">Choose your subscription</div>
       <div class="opts">
@@ -2135,8 +2285,7 @@
   }
   function uiSelect(){
     if (game.state === STATE.WELCOME) {
-      if (game.welcomeIndex === 4) { game.state = STATE.SUBHELP; return; }
-      const tier = ['home','home5','pro','unlimited'][game.welcomeIndex];
+      const tier = ['home','home5','pro','unlimited','capture'][game.welcomeIndex];
       startGame(tier);
     } else if (game.state === STATE.SUBHELP) {
       game.state = STATE.WELCOME;
@@ -2179,6 +2328,13 @@
         w: 24, h: 12, speed: 1.6,
         frozen:false, freezeT:0, happyT:0,
       };
+    }
+    // Tiers can constrain the playfield (the phone-screen frame for capture).
+    if (tier === 'capture') {
+      game.bounds = { left: 12, right: 308, top: 22, bottom: 218 };
+      game.cloud.x = (game.bounds.left + game.bounds.right)/2 - game.cloud.w/2;
+      // Bring cloud up slightly so it sits inside the phone screen
+      game.cloud.y = H - 44;
     }
   }
 
