@@ -592,40 +592,73 @@
   NOTE_FREQ['A2'] = 110.00;
   NOTE_FREQ['F2'] =  87.31;
   NOTE_FREQ['G2'] =  98.00;
+  NOTE_FREQ['D2'] =  73.42;
+
+  // Pirate tune — D minor, square + triangle, dramatic march
+  let pirateMode = false;
+  const PIRATE_MELODY = [
+    'D4','F4','A4','A4', 'G4','F4','G4','A4',
+    'D5','C5','A4','F4', 'D4','F4','A4','D5',
+  ];
+  const PIRATE_BASS = [
+    'D3','-','D2','-', 'A2','-','A2','-',
+    'D3','-','D2','-', 'A2','-','D3','D3',
+  ];
 
   function tickMusic() {
     if (!audioCtx || !musicEnabled) {
       musicNextTime = 0; musicStep = 0;
       return;
     }
-    const inGame = game && (game.state === STATE.PLAY ||
-                            game.state === STATE.COUNTDOWN ||
-                            game.state === STATE.PAUSE);
+    const inGame    = game && (game.state === STATE.PLAY ||
+                               game.state === STATE.COUNTDOWN ||
+                               game.state === STATE.PAUSE);
     const inWelcome = game && (game.state === STATE.WELCOME || game.state === STATE.SUBHELP);
-    if (!inGame && !inWelcome) {
+    const inPirate  = pirateMode && game && (game.state === STATE.PLAY || game.state === STATE.FULL);
+    if (!inGame && !inWelcome && !inPirate) {
       musicNextTime = 0; musicStep = 0;
       return;
     }
     if (musicNextTime === 0) musicNextTime = audioCtx.currentTime + 0.05;
 
-    // Same calm sine loop everywhere — welcome and gameplay alike.
-    // Soften slightly when paused.
-    const STEP_S = 0.42;
-    const paused = game && game.state === STATE.PAUSE;
-    const melVol  = paused ? 0.014 : 0.022;
-    const bassVol = paused ? 0.018 : 0.030;
-    while (musicNextTime < audioCtx.currentTime + 0.3) {
-      const i  = musicStep % WELCOME_MELODY.length;
-      const mn = WELCOME_MELODY[i];
-      const bn = WELCOME_BASS[i];
-      scheduleMusicNote(NOTE_FREQ[mn], musicNextTime, STEP_S * 1.6, 'sine',     melVol);
-      scheduleMusicNote(NOTE_FREQ[bn], musicNextTime, STEP_S * 3.0, 'triangle', bassVol);
-      musicNextTime += STEP_S;
-      musicStep++;
+    if (pirateMode) {
+      // Pirate march — D minor, square + triangle bass, brisk
+      const STEP_S = 0.22;
+      while (musicNextTime < audioCtx.currentTime + 0.3) {
+        const i  = musicStep % PIRATE_MELODY.length;
+        const mn = PIRATE_MELODY[i];
+        const bn = PIRATE_BASS[i];
+        scheduleMusicNote(NOTE_FREQ[mn], musicNextTime, STEP_S * 0.9, 'square',   0.040);
+        scheduleMusicNote(NOTE_FREQ[bn], musicNextTime, STEP_S * 1.6, 'triangle', 0.055);
+        musicNextTime += STEP_S;
+        musicStep++;
+      }
+    } else {
+      // Same calm sine loop everywhere else
+      const STEP_S = 0.42;
+      const paused = game && game.state === STATE.PAUSE;
+      const melVol  = paused ? 0.014 : 0.022;
+      const bassVol = paused ? 0.018 : 0.030;
+      while (musicNextTime < audioCtx.currentTime + 0.3) {
+        const i  = musicStep % WELCOME_MELODY.length;
+        const mn = WELCOME_MELODY[i];
+        const bn = WELCOME_BASS[i];
+        scheduleMusicNote(NOTE_FREQ[mn], musicNextTime, STEP_S * 1.6, 'sine',     melVol);
+        scheduleMusicNote(NOTE_FREQ[bn], musicNextTime, STEP_S * 3.0, 'triangle', bassVol);
+        musicNextTime += STEP_S;
+        musicStep++;
+      }
     }
   }
-  // Same loop everywhere, so we let the step counter carry through transitions.
-  setInterval(tickMusic, 60);
+  // Restart the loop counter when pirate mode toggles so the new pattern lines up.
+  let lastPirateMode = false;
+  setInterval(() => {
+    if (pirateMode !== lastPirateMode) {
+      musicNextTime = 0; musicStep = 0;
+      lastPirateMode = pirateMode;
+    }
+    tickMusic();
+  }, 60);
 
   // ---------- Input ----------
   const keys  = {left:false,right:false};   // cloud 1 (arrows)
@@ -736,14 +769,17 @@
   function makeWelcomeCloud(initial) {
     const r = Math.random();
     let kind;
-    if      (r < 0.32) kind = 'plainBig';
-    else if (r < 0.42) kind = 'normal';
-    else if (r < 0.49) kind = 'happy';
-    else if (r < 0.55) kind = 'sad';
-    else if (r < 0.64) kind = 'kid';
+    if      (r < 0.28) kind = 'plainBig';
+    else if (r < 0.36) kind = 'normal';
+    else if (r < 0.42) kind = 'happy';
+    else if (r < 0.47) kind = 'sad';
+    else if (r < 0.53) kind = 'mustacheBig';
+    else if (r < 0.59) kind = 'tieBig';
+    else if (r < 0.66) kind = 'kid';
     else if (r < 0.86) kind = 'tinyPlain';
     else                kind = 'tinyFace';
-    const wide = (kind === 'plainBig' || kind === 'normal' || kind === 'happy' || kind === 'sad') ? 32
+    const wide = (kind === 'plainBig' || kind === 'normal' || kind === 'happy'
+               || kind === 'sad' || kind === 'mustacheBig' || kind === 'tieBig') ? 32
                : (kind === 'kid') ? 24 : 12;
     return {
       kind,
@@ -767,13 +803,15 @@
     for (const c of welcomeClouds) {
       const x = c.x|0, y = c.y|0;
       switch (c.kind) {
-        case 'plainBig':  drawPlainCloud(x, y); break;
-        case 'normal':    drawCloud(x, y, 0, 'normal'); break;
-        case 'happy':     drawCloud(x, y, 0, 'happy');  break;
-        case 'sad':       drawCloud(x, y, 0, 'sad');    break;
-        case 'kid':       drawSmallCloud(x, y, 'normal'); break;
-        case 'tinyFace':  drawTinyCloud(x, y, false); break;
-        default:          drawTinyPlainCloud(x, y);
+        case 'plainBig':    drawPlainCloud(x, y); break;
+        case 'normal':      drawCloud(x, y, 0, 'normal'); break;
+        case 'happy':       drawCloud(x, y, 0, 'happy');  break;
+        case 'sad':         drawCloud(x, y, 0, 'sad');    break;
+        case 'mustacheBig': drawCloud(x, y, 0, 'normal', 0, 'moustache'); break;
+        case 'tieBig':      drawCloud(x, y, 0, 'normal', 0, 'tie'); break;
+        case 'kid':         drawSmallCloud(x, y, 'normal'); break;
+        case 'tinyFace':    drawTinyCloud(x, y, false); break;
+        default:            drawTinyPlainCloud(x, y);
       }
     }
     ctx.globalAlpha = 1;
@@ -1300,7 +1338,8 @@
 
   // ---------- Sprites ----------
   // mood: 'normal' | 'happy' | 'sad'    dir: -1 (left) | 0 | +1 (right)
-  function drawCloud(x,y, slow=0, mood='normal', dir=0) {
+  // accessory: 'none' | 'tophat' | 'moustache'
+  function drawCloud(x,y, slow=0, mood='normal', dir=0, accessory='none') {
     const sad = mood === 'sad';
     const body  = sad ? PAL.cloudRed      : PAL.cloud;
     const shade = sad ? PAL.cloudRedShade : PAL.cloudShade;
@@ -1328,6 +1367,11 @@
       rect(x+11, y+10, 1, 1, PAL.cloudOutline);
       rect(x+20, y+10, 1, 1, PAL.cloudOutline);
     } else if (mood === 'happy') {
+      // Pro brows above happy eyes
+      if (accessory === 'tie') {
+        rect(x+9 +ex, y+5, 4, 1, PAL.cloudOutline);
+        rect(x+19+ex, y+5, 4, 1, PAL.cloudOutline);
+      }
       // Happy: ^ ^ eyes + big smile
       rect(x+9 +ex, y+7, 1, 1, PAL.cloudOutline);
       rect(x+10+ex, y+6, 2, 1, PAL.cloudOutline);
@@ -1335,7 +1379,7 @@
       rect(x+19+ex, y+7, 1, 1, PAL.cloudOutline);
       rect(x+20+ex, y+6, 2, 1, PAL.cloudOutline);
       rect(x+22+ex, y+7, 1, 1, PAL.cloudOutline);
-      // wide smile
+      // wide smile (above the new moustache position, so it coexists fine)
       rect(x+11, y+10, 10, 1, PAL.cloudOutline);
       rect(x+10, y+9,  1, 1, PAL.cloudOutline);
       rect(x+21, y+9,  1, 1, PAL.cloudOutline);
@@ -1343,10 +1387,17 @@
       rect(x+8,  y+10, 1, 1, '#ffb8cf');
       rect(x+23, y+10, 1, 1, '#ffb8cf');
     } else {
+      // Pro brows above the eyes
+      if (accessory === 'tie') {
+        rect(x+9 +ex, y+5, 4, 1, PAL.cloudOutline);
+        rect(x+19+ex, y+5, 4, 1, PAL.cloudOutline);
+      }
       // Normal: dot eyes (shifted by dir) + small smile
       rect(x+10+ex, y+7, 2, 2, PAL.cloudOutline);
       rect(x+20+ex, y+7, 2, 2, PAL.cloudOutline);
-      rect(x+12, y+10, 8, 1, PAL.cloudOutline);
+      if (accessory !== 'moustache') {
+        rect(x+12, y+10, 8, 1, PAL.cloudOutline);
+      }
     }
     if (slow>0){
       ctx.fillStyle = PAL.inkSoft;
@@ -1355,6 +1406,46 @@
       ctx.fillText('z', x+30, y-2);
       if (slow>1) ctx.fillText('z', x+34, y-6);
     }
+    // Accessories — hidden when sad/frozen
+    if (!sad) {
+      if (accessory === 'tie')       drawTie(x, y);
+      if (accessory === 'moustache') drawMoustache(x, y);
+    }
+  }
+
+  function drawTie(x, y) {
+    const cx = x + 16;
+    // Knot (sits just below the mouth area)
+    rect(cx-2, y+13, 4, 2, '#3b3552');
+    rect(cx-2, y+13, 4, 1, '#5b5278');     // highlight
+    // Narrow neck below knot
+    rect(cx-1, y+15, 2, 1, '#7a6cff');
+    // Tie body — narrow → wide → tapered tip
+    rect(cx-2, y+16, 4, 2, '#7a6cff');
+    rect(cx-3, y+18, 6, 2, '#7a6cff');
+    rect(cx-2, y+20, 4, 1, '#7a6cff');
+    rect(cx-1, y+21, 2, 1, '#7a6cff');
+    // Subtle diagonal stripe
+    rect(cx-2, y+18, 1, 1, '#ff5e7a');
+    rect(cx,   y+17, 1, 1, '#ff5e7a');
+    rect(cx+2, y+16, 1, 1, '#ff5e7a');
+    // Light highlight on left edge
+    rect(cx-2, y+16, 1, 5, 'rgba(255,255,255,0.18)');
+  }
+
+  function drawMoustache(x, y) {
+    // Brown handlebar moustache, sitting low so it doesn't merge with the eyes.
+    // Eyes are at y+7..y+8; moustache starts at y+11 (≥2 px gap below eyes).
+    const BROWN    = '#6b4a2a';
+    const BROWN_DK = '#3b2510';
+    // Top wide bar
+    rect(x+9,  y+11, 14, 1, BROWN);
+    // Lower halves split in the middle for the handlebar feel
+    rect(x+9,  y+12, 4, 1, BROWN);
+    rect(x+19, y+12, 4, 1, BROWN);
+    // Darker undersides / tapered tips
+    rect(x+10, y+13, 3, 1, BROWN_DK);
+    rect(x+19, y+13, 3, 1, BROWN_DK);
   }
 
   // Smaller "child" cloud for multiplayer mode
@@ -1530,6 +1621,7 @@
                 spawnEvaporate(game.cloud, 25);
                 if (game.cloud2) spawnEvaporate(game.cloud2, 25);
                 bleepEvaporate();
+                pirateMode = true;
               }
             } else if (!isFull) {
               game.score += f.points;
@@ -1740,7 +1832,11 @@
     if (game.state !== STATE.WELCOME && game.state !== STATE.SUBHELP && !game.evaporating) {
       const m1 = moodOf(game.cloud);
       const d1 = (keys.left && !keys.right) ? -1 : (keys.right && !keys.left) ? 1 : 0;
-      drawCloud(game.cloud.x, game.cloud.y, slow, m1, d1);
+      const accessory =
+        (game.tier === 'pro' || game.switchedToPro) ? 'tie'
+        : (game.tier === 'home' || game.tier === 'home5') ? 'moustache'
+        : 'none';
+      drawCloud(game.cloud.x, game.cloud.y, slow, m1, d1, accessory);
       if (game.cloud2) {
         const m2 = moodOf(game.cloud2);
         const d2 = (keys2.left && !keys2.right) ? -1 : (keys2.right && !keys2.left) ? 1 : 0;
@@ -1954,11 +2050,11 @@
     ensureCard();
     if (game.deathReason === 'copyright') {
       card.innerHTML = `
-        <h1 class="bad">CLOUD EVAPORATED</h1>
-        <div class="sub">you stored too much copyrighted material.<br>
-          please start over, hopefully with files you actually own!</div>
+        <h1 class="bad">ARE YE A PIRATE? ARRR!</h1>
+        <div class="sub">three pirated files and yer cloud sank to the deep blue!<br>
+          start over with files ye actually own, matey.</div>
         <div class="opts">
-          <div class="opt sel" data-i="1" data-action="full">play again</div>
+          <div class="opt sel" data-i="1" data-action="full">arr, set sail again</div>
         </div>
       `;
       attachClicks('full');
@@ -2032,6 +2128,7 @@
   }
   function resetToWelcome(){
     game = freshGame();
+    pirateMode = false;
     ensureCard();
     syncHud();
     syncDialog();
