@@ -62,6 +62,36 @@
   }
   .hud .tier{ justify-self:start; }
   .hud .tb  { justify-self:end; }
+  .hud .left-col{
+    display:flex;
+    flex-direction:column;
+    gap: 4px;
+    align-items:flex-start;
+    justify-self:start;
+  }
+  .hud .hearts{
+    display:inline-flex;
+    gap: 4px;
+    line-height: 1;
+    font-size: 13px;
+  }
+  .hud .hearts .heart{
+    color: #ff5e7a;
+    text-shadow: 0 1px 0 rgba(20,15,40,0.25);
+    transition: color .25s linear, transform .25s ease-out;
+  }
+  .hud .hearts .heart.lost{
+    color: rgba(20,15,40,0.18);
+    text-shadow: none;
+  }
+  .hud .hearts .heart.breaking{
+    animation: heart-break .55s ease-out forwards;
+  }
+  @keyframes heart-break{
+    0%   { transform: scale(1.4) rotate(0);    color:#ff5e7a; }
+    40%  { transform: scale(0.9) rotate(-12deg); color:#ff5e7a; }
+    100% { transform: scale(1)   rotate(0);    color: rgba(20,15,40,0.18); }
+  }
   .hud .bar-wrap{
     display:flex; flex-direction:column; align-items:center; gap:4px;
     min-width: 200px;
@@ -327,7 +357,12 @@
   <canvas id="game" width="320" height="240"></canvas>
 
   <div class="hud" id="hud" hidden>
-    <div class="tier" id="tierName">HOME • 1 TB</div>
+    <div class="left-col">
+      <div class="tier" id="tierName">HOME • 1 TB</div>
+      <div class="hearts" id="hearts">
+        <span class="heart">♥</span><span class="heart">♥</span><span class="heart">♥</span>
+      </div>
+    </div>
     <div class="bar-wrap">
       <div class="bar-label" id="barLabel">STORAGE</div>
       <div class="bar" id="bar">
@@ -533,6 +568,13 @@
       switchedToPro: false,
       sparkles: [],
       rainDrops: [],
+      // Lives / death
+      lives: 3,
+      lastLives: 3,
+      evaporating: false,
+      evaporateT: 0,
+      evaporateParticles: [],
+      deathReason: null,
     };
   }
   function isMulti(){ return game.tier && TIERS[game.tier] && TIERS[game.tier].multi; }
@@ -1142,6 +1184,7 @@
 
       for (const f of game.files) {
         if (f.dead) continue;
+        if (game.evaporating) break;
         for (const c of clouds) {
           if (c.frozen) continue;
           const hit =
@@ -1155,6 +1198,14 @@
               c.frozen = true; c.freezeT = 2.0; c.happyT = 0;
               spawnRain(20, c);
               bleepSad(isChild);
+              game.lives = Math.max(0, game.lives - 1);
+              if (game.lives <= 0 && !game.evaporating) {
+                game.evaporating = true;
+                game.evaporateT = 1.8;
+                game.deathReason = 'copyright';
+                spawnEvaporate(game.cloud, 25);
+                if (game.cloud2) spawnEvaporate(game.cloud2, 25);
+              }
             } else if (!isFull) {
               game.score += f.points;
               spark(f.x + f.w/2, f.y + f.h/2);
@@ -1172,6 +1223,26 @@
       // Sparkles
       for (const s of game.sparkles) { s.t += dt; s.y -= 30*dt; }
       game.sparkles = game.sparkles.filter(s => s.t < 0.5);
+
+      // Evaporation
+      if (game.evaporating) {
+        game.evaporateT -= dt;
+        // emit a swirl of particles
+        if (Math.random() < 0.7) spawnEvaporate(game.cloud, 3);
+        if (game.cloud2 && Math.random() < 0.7) spawnEvaporate(game.cloud2, 3);
+        if (game.evaporateT <= 0) {
+          // freeze on death screen
+          game.state = STATE.FULL;
+          game.promptIndex = 0;
+        }
+      }
+      // Always step particles
+      for (const p of game.evaporateParticles) {
+        p.x += p.vx * 60 * dt;
+        p.y += p.vy * 60 * dt;
+        p.life -= dt;
+      }
+      game.evaporateParticles = game.evaporateParticles.filter(p => p.life > 0);
 
       // Rain (visual)
       for (const r of game.rainDrops) { r.y += r.vy * 60 * dt; r.life -= dt; }
@@ -1228,6 +1299,22 @@
         y: c.y + c.h - 2,
         vy: 0.8 + Math.random()*0.6,
         life: 0.8 + Math.random()*0.4,
+      });
+    }
+  }
+  function spawnEvaporate(c, n=10){
+    if (!c) return;
+    for (let i=0;i<n;i++){
+      const offX = Math.random() * c.w;
+      const offY = Math.random() * c.h;
+      game.evaporateParticles.push({
+        x: c.x + offX,
+        y: c.y + offY,
+        vx: (Math.random() - 0.5) * 0.7,
+        vy: -0.25 - Math.random() * 0.6,
+        life: 0.9 + Math.random() * 0.7,
+        size: Math.random() < 0.55 ? 2 : 1,
+        color: Math.random() < 0.7 ? PAL.cloud : PAL.cloudShade,
       });
     }
   }
@@ -1323,7 +1410,7 @@
       if (tb >= 7) slow = 2;
       else if (tb >= 6) slow = 1;
     }
-    if (game.state !== STATE.WELCOME && game.state !== STATE.SUBHELP) {
+    if (game.state !== STATE.WELCOME && game.state !== STATE.SUBHELP && !game.evaporating) {
       const m1 = moodOf(game.cloud);
       const d1 = (keys.left && !keys.right) ? -1 : (keys.right && !keys.left) ? 1 : 0;
       drawCloud(game.cloud.x, game.cloud.y, slow, m1, d1);
@@ -1333,9 +1420,17 @@
         drawSmallCloud(game.cloud2.x, game.cloud2.y, m2, d2);
       }
     }
-    // Speech bubbles for the copyright trap
-    syncSpeechBubble(document.getElementById('bubble1'), game.cloud);
-    syncSpeechBubble(document.getElementById('bubble2'), game.cloud2);
+
+    // Evaporation particles (drawn after clouds so they sit on top during dispersion)
+    for (const p of game.evaporateParticles) {
+      ctx.globalAlpha = Math.min(1, p.life);
+      rect(p.x|0, p.y|0, p.size, p.size, p.color);
+      ctx.globalAlpha = 1;
+    }
+
+    // Speech bubbles for the copyright trap (hidden during evaporation)
+    syncSpeechBubble(document.getElementById('bubble1'), game.evaporating ? null : game.cloud);
+    syncSpeechBubble(document.getElementById('bubble2'), game.evaporating ? null : game.cloud2);
 
     // Sparkles
     for (const s of game.sparkles) {
@@ -1354,6 +1449,17 @@
                   || game.state === STATE.FULL || game.state === STATE.UPGRADE
                   || game.state === STATE.CALL_CS || game.state === STATE.COUNTDOWN;
     hud.hidden = !playing;
+    // Hearts
+    const heartsEl = document.getElementById('hearts');
+    if (heartsEl) {
+      const justLost = (game.lastLives !== undefined && game.lives < game.lastLives);
+      heartsEl.innerHTML = [0,1,2].map(i => {
+        const lost = i >= game.lives;
+        const breaking = justLost && i === game.lives; // the one that just got lost
+        return `<span class="heart ${lost ? 'lost' : ''} ${breaking ? 'breaking' : ''}">♥</span>`;
+      }).join('');
+      game.lastLives = game.lives;
+    }
     // Update hint bar
     if (isMulti() && playing) {
       hintEl.innerHTML =
@@ -1499,6 +1605,18 @@
 
   function renderFullUI(){
     ensureCard();
+    if (game.deathReason === 'copyright') {
+      card.innerHTML = `
+        <h1 class="bad">CLOUD EVAPORATED</h1>
+        <div class="sub">you stored too much copyrighted material.<br>
+          please start over, hopefully with files you actually own!</div>
+        <div class="opts">
+          <div class="opt sel" data-i="1" data-action="full">play again</div>
+        </div>
+      `;
+      attachClicks('full');
+      return;
+    }
     const tb = (game.score/POINTS_PER_TB).toFixed(2);
     card.innerHTML = `
       <h1 class="bad">STORAGE FULL!</h1>
