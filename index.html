@@ -1233,7 +1233,8 @@
         if (game.evaporateT <= 0) {
           // freeze on death screen
           game.state = STATE.FULL;
-          game.promptIndex = 0;
+          // Death screen has only "play again", which is the index 1 branch (resetToWelcome).
+          game.promptIndex = 1;
         }
       }
       // Always step particles
@@ -1676,7 +1677,11 @@
   function uiNav(dir){
     if (game.state === STATE.WELCOME) game.welcomeIndex = (game.welcomeIndex + dir + 5) % 5;
     else if (game.state === STATE.PAUSE)   game.promptIndex = (game.promptIndex + dir + 2) % 2;
-    else if (game.state === STATE.FULL)    game.promptIndex = (game.promptIndex + dir + 2) % 2;
+    else if (game.state === STATE.FULL) {
+      // Death screen has only one option, so don't shuffle the prompt index away from it.
+      if (game.deathReason === 'copyright') return;
+      game.promptIndex = (game.promptIndex + dir + 2) % 2;
+    }
     else if (game.state === STATE.UPGRADE) game.promptIndex = (game.promptIndex + dir + 2) % 2;
   }
   function resetToWelcome(){
@@ -1698,9 +1703,11 @@
       if (game.promptIndex === 0) togglePause();           // resume
       else { resetToWelcome(); }                            // back to welcome
     } else if (game.state === STATE.FULL) {
+      // Copyright death has only one option (play again) and never offers an upgrade.
+      if (game.deathReason === 'copyright') { resetToWelcome(); return; }
       if (game.promptIndex === 0) {
         if (game.tier === 'pro' || game.switchedToPro) game.state = STATE.CALL_CS;
-        else game = freshGame();
+        else resetToWelcome();
       } else { resetToWelcome(); }
     } else if (game.state === STATE.UPGRADE) {
       if (game.promptIndex === 0) { game.switchedToPro = true; game.state = STATE.PLAY; }
