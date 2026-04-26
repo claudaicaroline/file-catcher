@@ -1,0 +1,1622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Jottacloud File Catcher</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#fdf6ec;
+    --ink:#2a2540;
+    --ink-soft:#5b5278;
+    --accent:#7a6cff;
+    --accent2:#ff8fb1;
+    --ok:#6bd4a1;
+    --warn:#ffb454;
+    --bad:#ff5e7a;
+    --cream:#fff5e1;
+  }
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;padding:0;height:100%;
+    background: radial-gradient(ellipse at top,#ffe7f0 0%,#fdf6ec 60%,#e7eaff 100%);
+    color:var(--ink);
+    font-family: "Press Start 2P", ui-monospace, Menlo, Consolas, monospace;
+    overflow:hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  body{display:flex;align-items:center;justify-content:center}
+  .wrap{
+    position:relative;
+    width:min(96vw, calc(96vh * 4 / 3));
+    aspect-ratio: 4 / 3;
+    background:#000;
+    border-radius:14px;
+    box-shadow: 0 24px 60px rgba(40,30,90,.18), inset 0 0 0 6px #ffffff, 0 0 0 1px rgba(0,0,0,.06);
+    overflow:hidden;
+    user-select:none;
+  }
+  canvas{
+    width:100%;height:100%;
+    display:block;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    background:#222;
+  }
+
+  /* HUD overlay */
+  .hud{
+    position:absolute; top:0; left:0; right:0;
+    padding:10px 14px;
+    display:grid; grid-template-columns: 1fr auto 1fr; align-items:center;
+    gap:10px;
+    color:var(--ink);
+    background: linear-gradient(to bottom, rgba(255,255,255,.85), rgba(255,255,255,.65) 80%, rgba(255,255,255,0));
+    pointer-events:none;
+    font-size: clamp(8px, 1.2vw, 12px);
+    letter-spacing: .05em;
+  }
+  .hud .tier{ justify-self:start; }
+  .hud .tb  { justify-self:end; }
+  .hud .bar-wrap{
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    min-width: 200px;
+  }
+  .hud .bar-label{
+    font-size: 9px; color:var(--ink-soft); letter-spacing:.18em;
+  }
+  .hud .bar{
+    position:relative;
+    width: clamp(160px, 26vw, 260px);
+    height: 14px;
+    background: #efe7d4;
+    border: 2px solid var(--ink);
+    border-radius: 0;
+    overflow:hidden;
+  }
+  .hud .bar-fill{
+    height:100%; width:0%;
+    background: var(--ok);
+    transition: width .15s linear, background-color .25s linear;
+  }
+  .hud .bar-fill.indeterminate{
+    width:100% !important;
+    background: linear-gradient(90deg,
+      rgba(122,108,255,.15) 0%,
+      rgba(107,212,161,.85) 35%,
+      rgba(255,143,177,.85) 50%,
+      rgba(107,212,161,.85) 65%,
+      rgba(122,108,255,.15) 100%);
+    background-size: 220% 100%;
+    animation: shimmer 2.4s linear infinite;
+    transition:none;
+  }
+  @keyframes shimmer {
+    0%   { background-position: 220% 0; }
+    100% { background-position: -220% 0; }
+  }
+  .hud .bar-fill.pulse{
+    filter: brightness(1.5) saturate(1.4);
+    transition: filter .25s ease-out;
+  }
+  .hud .bar-tick{
+    position:absolute; top:-3px; bottom:-3px; width:2px;
+    background: var(--ink);
+  }
+
+  /* Dialog overlay */
+  .dialog{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    background: rgba(20,15,40,.45);
+    pointer-events:auto;
+  }
+  .dialog.hidden{ display:none }
+  .dialog .card{
+    background: var(--cream);
+    border: 3px solid var(--ink);
+    box-shadow: 6px 6px 0 rgba(20,15,40,.25);
+    padding: clamp(14px, 2.6vw, 26px) clamp(16px, 3vw, 32px);
+    max-width: 78%;
+    text-align:center;
+    color:var(--ink);
+    line-height: 1.5;
+  }
+  .dialog h1{
+    margin:0 0 10px;
+    font-size: clamp(14px, 2.4vw, 22px);
+    color: var(--accent);
+    letter-spacing:.06em;
+  }
+  .dialog h1.bad{ color: var(--bad); }
+  .dialog .sub{
+    font-size: clamp(8px, 1.2vw, 11px);
+    color: var(--ink-soft);
+    margin-bottom: 14px;
+    line-height: 1.7;
+  }
+  .dialog .opts{
+    display:flex; flex-direction:column; gap:6px; margin-top: 14px;
+  }
+  .dialog .opt{
+    font-size: clamp(9px, 1.4vw, 13px);
+    padding: 10px 14px;
+    background: #f5edd9;
+    border: 2px solid transparent;
+    cursor:pointer;
+    text-align:center;
+    color: var(--ink);
+  }
+  .dialog .opt .sub2{
+    display:block;
+    font-size: 8px;
+    color: var(--ink-soft);
+    margin-top:4px;
+    letter-spacing:.04em;
+  }
+  .dialog .section-heading{
+    font-size: 10px;
+    color: var(--ink-soft);
+    letter-spacing: .18em;
+    margin: 14px 0 6px;
+    text-transform: uppercase;
+  }
+  .dialog .opt.sel{
+    background: #ffe7f0;
+    border-color: var(--accent);
+  }
+  .dialog .opt.sel::before{ content:"> "; color: var(--accent); }
+  .dialog .opt.subtle{
+    background: transparent;
+    font-size: clamp(8px, 1.1vw, 10px);
+    color: var(--ink-soft);
+    margin-top: 6px;
+    padding: 8px;
+  }
+  .dialog .opt.subtle.sel{
+    background: #f5edd9;
+    color: var(--ink);
+  }
+  .dialog a{ color: var(--accent); text-decoration: underline; }
+  .dialog .footer{
+    margin-top: 16px;
+    font-size: 8px;
+    color: var(--ink-soft);
+    letter-spacing:.1em;
+  }
+  .countdown-num{
+    font-size: clamp(60px, 10vw, 110px);
+    color:#fff;
+    text-shadow: 4px 4px 0 rgba(20,15,40,.6);
+    margin: 0;
+    line-height:1;
+  }
+  .countdown-sub{
+    color:#fff;
+    font-size: clamp(10px, 1.6vw, 14px);
+    letter-spacing:.2em;
+    margin-top:10px;
+  }
+
+  /* Hint */
+  .hint{
+    position:absolute;
+    bottom:0; left:0; right:0;
+    text-align:center;
+    font-size: 10px;
+    color: #fff5e1;
+    background: rgba(20,15,40,.75);
+    padding: 8px 12px;
+    letter-spacing: .14em;
+    pointer-events:none;
+    text-transform:uppercase;
+    line-height: 1;
+  }
+  .hint .arrow{
+    display:inline-block;
+    font-size: 18px;
+    line-height: 1;
+    transform: translateY(2px);
+    color:#fff;
+    margin: 0 1px;
+  }
+  .hint .key{
+    color:#ffd968;
+    margin: 0 2px;
+  }
+  .hint.dark{ color:#fff; opacity:.7 }
+
+  /* Persistent signature in the corner */
+  .signature{
+    position:absolute;
+    bottom: 36px; right: 12px;
+    font-size: 8px;
+    color: rgba(20,15,40,0.55);
+    text-shadow: 0 1px 0 rgba(255,255,255,0.55);
+    letter-spacing: .05em;
+    pointer-events:none;
+    z-index: 5;
+  }
+
+  /* Speech bubble for the copyright trap */
+  .speech-bubble{
+    position:absolute;
+    transform: translate(-50%, -120%);
+    background: #fff5e1;
+    border: 2px solid #2a2540;
+    color: #ff5e7a;
+    padding: 6px 10px;
+    font-size: 8px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    text-align:center;
+    line-height: 1.7;
+    pointer-events:none;
+    z-index: 6;
+    box-shadow: 2px 2px 0 rgba(20,15,40,.25);
+  }
+  .speech-bubble .line2{
+    color: #2a2540;
+    display:block;
+    margin-top: 2px;
+    font-size: 7px;
+  }
+  .speech-bubble[hidden]{ display:none }
+  .speech-bubble::after{
+    content:'';
+    position:absolute;
+    bottom:-6px; left:50%;
+    width:0; height:0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #2a2540;
+    transform: translateX(-50%);
+  }
+  .speech-bubble::before{
+    content:'';
+    position:absolute;
+    bottom:-3px; left:50%;
+    width:0; height:0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-top: 4px solid #fff5e1;
+    transform: translateX(-50%);
+    z-index: 1;
+  }
+
+  .opt .multi-tag{
+    display:block;
+    font-size: 8px;
+    color: var(--ink-soft);
+    margin-top: 3px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+  .opt.sel .multi-tag{ color: var(--accent); }
+
+  /* Touch buttons */
+  .touch{
+    position:absolute;inset:auto 0 0 0;
+    display:flex;justify-content:space-between;
+    padding:8px;
+    pointer-events:none;
+    opacity:0;
+  }
+  .touch button{
+    pointer-events:auto;
+    width:25%;height:80px;
+    background:rgba(255,255,255,.18);
+    border:2px solid rgba(255,255,255,.4);
+    color:#fff;
+    font-family:inherit;font-size:24px;
+    border-radius:10px;
+  }
+  .touch .pause-btn{ width:80px; height:48px; font-size:11px; align-self:flex-end }
+  @media (hover:none) and (pointer:coarse){
+    .touch{opacity:1}
+    .hint{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <canvas id="game" width="320" height="240"></canvas>
+
+  <div class="hud" id="hud" hidden>
+    <div class="tier" id="tierName">HOME • 1 TB</div>
+    <div class="bar-wrap">
+      <div class="bar-label" id="barLabel">STORAGE</div>
+      <div class="bar" id="bar">
+        <div class="bar-fill" id="barFill"></div>
+      </div>
+    </div>
+    <div class="tb" id="tbValue">0.00 TB</div>
+  </div>
+
+  <div class="dialog" id="dialog">
+    <div class="card" id="dialogCard"></div>
+  </div>
+
+  <div class="touch">
+    <button id="btnL" aria-label="left">◀</button>
+    <button id="btnPause" class="pause-btn">PAUSE</button>
+    <button id="btnR" aria-label="right">▶</button>
+  </div>
+  <div class="hint" id="hint">
+    <span class="arrow">◄</span><span class="arrow">►</span>
+    <span class="key">MOVE</span> •
+    <span class="key">ENTER</span> PAUSE •
+    <span class="key">SPACE</span> SELECT
+  </div>
+
+  <div class="signature">Made by ClaudAI :)</div>
+  <div class="speech-bubble" id="bubble1" hidden>That's copyrighted!!!<span class="line2">I'm gonna tell Torstein!!</span></div>
+  <div class="speech-bubble" id="bubble2" hidden>That's copyrighted!!!<span class="line2">I'm gonna tell Torstein!!</span></div>
+</div>
+
+<script>
+(() => {
+  // ---------- Setup ----------
+  const cv = document.getElementById('game');
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const W = cv.width, H = cv.height;
+
+  const hud = document.getElementById('hud');
+  const tierEl = document.getElementById('tierName');
+  const tbEl = document.getElementById('tbValue');
+  const barEl = document.getElementById('bar');
+  const barFill = document.getElementById('barFill');
+  const barLabel = document.getElementById('barLabel');
+  const dialog = document.getElementById('dialog');
+  const card = document.getElementById('dialogCard');
+  const hintEl = document.getElementById('hint');
+
+  // ---------- Palette ----------
+  const PAL = {
+    ink:'#2a2540', inkSoft:'#5b5278', white:'#ffffff', cream:'#fff5e1',
+    shadow:'rgba(20,15,40,.35)',
+    photoFrame:'#ffffff', photoSky:'#9bd3ff', photoHill:'#7ad19c', photoSun:'#ffd968',
+    folderBack:'#e69b3a', folderFront:'#ffc36a', folderTab:'#ffd98a',
+    docBody:'#ffffff', docLine:'#bdb6d6', docCorner:'#e3deef',
+    videoBody:'#3a3358', videoReel:'#1c1830', videoHole:'#7a6cff', videoLight:'#ffd968',
+    copyBody:'#ff5e7a', copyDark:'#a8324a', copyText:'#ffffff',
+    cloud:'#ffffff', cloudShade:'#dcd4f0', cloudOutline:'#2a2540',
+    cloudRed:'#ff5e7a', cloudRedShade:'#c93f5f',
+    rain:'#7ec6ff',
+    welcomeBg:'#e7eaff',
+    livingWall:'#fbe1d6', livingFloor:'#e9b89c', livingSofa:'#ff8fb1', livingSofaShade:'#d96b8e',
+    livingLamp:'#ffd968', livingFrame:'#7a6cff',
+    officeWall:'#d8efe5', officeFloor:'#9fc8b9', officeDesk:'#c08a5b', officeDeskShade:'#8a5f3b',
+    officeMonitor:'#2a2540', officePlant:'#6bd4a1', officePot:'#b07b53', officeChair:'#5b5278',
+    mountSky1:'#cfe7ff', mountSky2:'#ffe2f0', mountSnow:'#ffffff', mountRock:'#9aa6c4', mountRockDk:'#6b779a',
+    mountLake:'#7ec6ff', mountLake2:'#bde2ff', mountTree:'#5fa380', mountGround:'#bfd9b1',
+    mountMid:'#dfe9ff', // mid-band sky used to fill below gradient
+  };
+
+  // ---------- Audio ----------
+  let audioCtx = null;
+  function initAudio(){
+    if (audioCtx) { if (audioCtx.state === 'suspended') audioCtx.resume(); return; }
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e){ audioCtx = null; }
+  }
+  function tone(freq, dur, type='square', vol=0.10) {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t); osc.stop(t + dur + 0.02);
+  }
+  function bleepCatch(type, octaveUp=false) {
+    // chiptune blip — slight pitch by file type; child cloud is one octave higher
+    const base = { photo:880, folder:1175, document:587, video:988 }[type] || 880;
+    const f = octaveUp ? base * 2 : base;
+    tone(f,        0.06, 'square', 0.10);
+    tone(f * 1.5,  0.05, 'square', 0.07);
+  }
+  function bleepSad(octaveUp=false) {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    const startF = octaveUp ? 880 : 440;
+    const endF   = octaveUp ? 180 :  90;
+    osc.frequency.setValueAtTime(startF, t);
+    osc.frequency.exponentialRampToValueAtTime(endF, t + 0.55);
+    gain.gain.setValueAtTime(0.14, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t); osc.stop(t + 0.65);
+  }
+  // Initialize audio on the first interaction with the page
+  ['pointerdown','keydown','touchstart'].forEach(ev =>
+    window.addEventListener(ev, initAudio, {once:false})
+  );
+
+  // ---------- Input ----------
+  const keys  = {left:false,right:false};   // cloud 1 (arrows)
+  const keys2 = {left:false,right:false};   // cloud 2 (WASD, multiplayer only)
+  let leftPresses = 0, rightPresses = 0;    // for unlimited slowdown (cloud 1)
+
+  document.addEventListener('keydown', e => {
+    initAudio();
+    if (e.repeat) return;
+    if (e.code === 'ArrowLeft')  { keys.left  = true; leftPresses++; }
+    if (e.code === 'ArrowRight') { keys.right = true; rightPresses++; }
+    if (e.code === 'KeyA') {
+      if (isMulti()) keys2.left = true;
+      else { keys.left = true; leftPresses++; }
+    }
+    if (e.code === 'KeyD') {
+      if (isMulti()) keys2.right = true;
+      else { keys.right = true; rightPresses++; }
+    }
+    if (e.code === 'Enter') { handleEnter(); e.preventDefault(); return; }
+    if (e.code === 'Space')  { handleSpace(); e.preventDefault(); return; }
+    if (e.code === 'ArrowUp') uiNav(-1);
+    if (e.code === 'ArrowDown') uiNav(1);
+    // W/S for menu nav only when not playing
+    if (e.code === 'KeyW' && game.state !== STATE.PLAY) uiNav(-1);
+    if (e.code === 'KeyS' && game.state !== STATE.PLAY) uiNav(1);
+    if (e.code === 'Escape') {
+      if (game.state === STATE.PLAY)  togglePause();
+      else if (game.state === STATE.PAUSE) togglePause();   // quick-resume
+    }
+    if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space','Enter'].includes(e.code)) e.preventDefault();
+  }, {passive:false});
+  document.addEventListener('keyup', e => {
+    if (e.code === 'ArrowLeft')  keys.left  = false;
+    if (e.code === 'ArrowRight') keys.right = false;
+    if (e.code === 'KeyA') { if (isMulti()) keys2.left = false; else keys.left = false; }
+    if (e.code === 'KeyD') { if (isMulti()) keys2.right = false; else keys.right = false; }
+  });
+  // touch
+  const btnL = document.getElementById('btnL'), btnR = document.getElementById('btnR');
+  const btnPause = document.getElementById('btnPause');
+  const press = (k,v) => { keys[k]=v; if(v){ if(k==='left')leftPresses++; else rightPresses++; } };
+  ['pointerdown','pointerup','pointerleave','pointercancel'].forEach(ev=>{
+    btnL.addEventListener(ev, e => press('left',  ev==='pointerdown'));
+    btnR.addEventListener(ev, e => press('right', ev==='pointerdown'));
+  });
+  btnPause.addEventListener('click', e => { if (game.state === STATE.PLAY) togglePause(); else if (game.state === STATE.PAUSE) togglePause(); });
+
+  function handleEnter(){
+    // Enter pauses during gameplay; on every dialog (including pause) it confirms.
+    // Esc is the quick-resume shortcut from pause.
+    if (game.state === STATE.PLAY) { togglePause(); return; }
+    uiSelect();
+  }
+  function handleSpace(){ uiSelect(); }
+
+  // ---------- States ----------
+  const STATE = {
+    WELCOME:'welcome', COUNTDOWN:'countdown', PLAY:'play',
+    PAUSE:'pause', FULL:'full', UPGRADE:'upgrade', CALL_CS:'call_cs',
+    SUBHELP:'subhelp'
+  };
+  const TIERS = {
+    home:      { name:'HOME • 1 TB',          limitTB:1,        bg:'living', multi:false },
+    home5:     { name:'HOME • 5 TB (family)', limitTB:5,        bg:'living', multi:true  },
+    pro:       { name:'PRO • 10 TB',          limitTB:10,       bg:'office', multi:false },
+    unlimited: { name:'UNLIMITED',            limitTB:Infinity, bg:'mountain', multi:false },
+  };
+  const POINTS_PER_TB = 100;
+
+  let game = freshGame();
+  function freshGame() {
+    return {
+      state: STATE.WELCOME,
+      welcomeIndex: 0, promptIndex: 0,
+      tier: null,
+      score: 0,
+      countdown: 5, countdownT: 0,
+      time: 0,
+      cloud:  { x: W/2 - 16, y: H - 36, w: 32, h: 16, speed: 1.6,
+                frozen:false, freezeT:0, happyT:0 },
+      cloud2: null, // populated when tier is multiplayer (home5)
+      files: [],
+      spawnT: 0,
+      spawnEvery: 0.55,
+      gravity: 28,
+      shownUnlimitedUpgrade: false,
+      switchedToPro: false,
+      sparkles: [],
+      rainDrops: [],
+    };
+  }
+  function isMulti(){ return game.tier && TIERS[game.tier] && TIERS[game.tier].multi; }
+
+  // weights sum to 100. (Original ratios 50/30/10/10 preserved within ~3% noise budget.)
+  const FILES = [
+    { type:'photo',     points:5,  weight:48, w:14, h:12 },
+    { type:'folder',    points:20, weight:29, w:18, h:14 },
+    { type:'document',  points:1,  weight:10, w:12, h:14 },
+    { type:'video',     points:10, weight:9,  w:18, h:14 },
+    { type:'copyright', points:0,  weight:4,  w:14, h:14, bad:true },
+  ];
+  function pickFile() {
+    const r = Math.random()*100;
+    let acc = 0;
+    for (const f of FILES) { acc += f.weight; if (r < acc) return f; }
+    return FILES[0];
+  }
+
+  // ---------- Drawing helpers ----------
+  function rect(x,y,w,h,c){ ctx.fillStyle = c; ctx.fillRect(x|0,y|0,w|0,h|0); }
+  function blend(a,b,t){
+    const A = hex(a), B = hex(b);
+    return `rgb(${(A.r+(B.r-A.r)*t)|0},${(A.g+(B.g-A.g)*t)|0},${(A.b+(B.b-A.b)*t)|0})`;
+  }
+  function hex(h){
+    const m = h.replace('#','');
+    return { r:parseInt(m.slice(0,2),16), g:parseInt(m.slice(2,4),16), b:parseInt(m.slice(4,6),16) };
+  }
+
+  // ---------- Backgrounds (full-coverage base, then decorations) ----------
+  function drawBackground(kind) {
+    if (kind === 'living')   drawLiving();
+    else if (kind === 'office') drawOffice();
+    else                     drawMountain();
+  }
+
+  function drawLiving() {
+    // ----- Striped pastel wallpaper -----
+    rect(0, 0, W, H*0.7, '#fbe1d6');
+    const stripeW = 6;
+    for (let i = 0; i < W; i += stripeW * 2) {
+      rect(i, 0, stripeW, H*0.7, '#f7cdbd');
+    }
+    // gentle vertical seam highlight every wider band
+    for (let i = 0; i < W; i += 24) {
+      rect(i, 0, 1, H*0.7, 'rgba(255,255,255,0.35)');
+    }
+    // ----- Floor -----
+    rect(0,H*0.7,W,H*0.3, PAL.livingFloor);
+    for (let i=0;i<W;i+=16) rect(i, H*0.7, 1, H*0.3, '#d6a283');
+    rect(0, H*0.7-2, W, 2, '#a37a4d');         // skirting
+
+    // ----- Round window (top-left, above the TV) -----
+    const wx = 38, wy = 60, wr = 22;
+    // sky/sea inside the window (drawn as a clipped circle)
+    for (let dy = -wr; dy <= wr; dy++) {
+      const dx = Math.floor(Math.sqrt(wr*wr - dy*dy));
+      const isSea = dy >= 6;
+      rect(wx - dx, wy + dy, dx*2 + 1, 1, isSea ? '#7ec6ff' : '#cfe7ff');
+    }
+    // sun in window
+    rect(wx+8, wy-8, 5, 2, '#ffd968');
+    rect(wx+7, wy-6, 7, 4, '#ffd968');
+    rect(wx+8, wy-2, 5, 2, '#ffd968');
+    // little cloud
+    rect(wx-12, wy-4, 8, 2, '#ffffff');
+    rect(wx-14, wy-2, 12, 2, '#ffffff');
+    // wave dashes
+    for (let i = -wr+4; i < wr-4; i += 6) rect(wx+i, wy+10, 3, 1, '#bde2ff');
+    // outer frame ring
+    drawCircleRing(wx, wy, wr+2, wr, '#5b5278');
+    drawCircleRing(wx, wy, wr,   wr-1, '#3b3552');
+    // rivets / trim — simple cross sashes
+    rect(wx-1, wy-wr+1, 2, wr*2-1, '#5b5278');
+    rect(wx-wr+1, wy-1, wr*2-1, 2, '#5b5278');
+
+    // ----- TV on the left -----
+    const tvX = 14, tvY = 108;
+    rect(tvX,    tvY,    52, 36, '#2a2540');
+    rect(tvX+2,  tvY+2,  48, 28, '#5b5278');
+    rect(tvX+3,  tvY+3,  46, 26, '#7a6cff');
+    // doodle on screen: sun + hill
+    rect(tvX+10, tvY+8,  6, 6, '#ffd968');
+    rect(tvX+5,  tvY+18, 42, 8, '#6bd4a1');
+    rect(tvX+5,  tvY+16, 42, 2, '#9bd3ff');
+    // power led
+    rect(tvX+46, tvY+33, 2, 2, '#6bd4a1');
+
+    // ----- TV console under the TV (so it doesn't float) -----
+    const consoleX = 6, consoleY = 144, consoleW = 68, consoleH = 24;
+    rect(consoleX, consoleY,         consoleW, 4,  '#a37a4d');   // top edge
+    rect(consoleX, consoleY+4,       consoleW, consoleH-4, '#c08a5b'); // body
+    rect(consoleX, consoleY+consoleH-2, consoleW, 2, '#7a5a3a');  // bottom shadow
+    // drawer divider
+    rect(consoleX + consoleW/2|0, consoleY+4, 1, consoleH-4, '#7a5a3a');
+    // handles
+    rect(consoleX+12, consoleY+12, 6, 2, '#5b3a1a');
+    rect(consoleX+50, consoleY+12, 6, 2, '#5b3a1a');
+    // tiny succulent on top of console (by the TV)
+    rect(consoleX+58, consoleY-6, 8, 6, '#b07b53');
+    rect(consoleX+58, consoleY-10, 8, 4, PAL.officePlant);
+    rect(consoleX+60, consoleY-14, 4, 4, PAL.officePlant);
+
+    // ----- Family portrait above the sofa (beach scene) -----
+    const portraitX = 186, portraitY = 30;
+    const pW = 80, pH = 50;
+    rect(portraitX,   portraitY,   pW, pH, '#3b3552');                  // outer frame
+    rect(portraitX+2, portraitY+2, pW-4, pH-4, '#5b5278');              // inner frame
+    // sky
+    rect(portraitX+4, portraitY+4, pW-8, 22, '#9bd3ff');
+    // sun
+    rect(portraitX+pW-18, portraitY+8,  6, 4, '#ffd968');
+    rect(portraitX+pW-20, portraitY+9,  10, 2, '#ffd968');
+    rect(portraitX+pW-18, portraitY+12, 6, 1, '#ffd968');
+    // small distant clouds
+    rect(portraitX+10, portraitY+10, 6, 2, '#ffffff');
+    rect(portraitX+8,  portraitY+12, 10, 2, '#ffffff');
+    // sea
+    rect(portraitX+4, portraitY+26, pW-8, 6, '#7ec6ff');
+    rect(portraitX+4, portraitY+26, pW-8, 1, '#bde2ff');
+    for (let i = portraitX+8; i < portraitX+pW-8; i += 8) {
+      rect(i, portraitY+30, 3, 1, '#bde2ff');
+    }
+    // sand
+    rect(portraitX+4, portraitY+32, pW-8, pH-36, '#ffe7a3');
+    rect(portraitX+4, portraitY+32, pW-8, 1, '#f5d68b');
+    // beach umbrella
+    rect(portraitX+62, portraitY+36, 1, 8, '#3b3552'); // pole
+    rect(portraitX+58, portraitY+33, 9, 1, '#ff5e7a');
+    rect(portraitX+57, portraitY+34, 11, 1, '#ff5e7a');
+    rect(portraitX+59, portraitY+35, 7, 1, '#ffffff');
+    rect(portraitX+60, portraitY+36, 5, 1, '#ff5e7a');
+    // 3 cloud family members on the sand
+    drawTinyCloud(portraitX +  8, portraitY + 32, false);
+    drawTinyCloud(portraitX + 24, portraitY + 32, false);
+    drawTinyCloud(portraitX + 40, portraitY + 32, false);
+    if (game.tier === 'home5') {
+      // kid cloud nestled in front
+      drawTinyCloud(portraitX + 16, portraitY + 40, true);
+    }
+
+    // ----- Sofa (right) -----
+    rect(170,140,110,40, PAL.livingSofa);
+    rect(170,140,110,8,  PAL.livingSofaShade);
+    rect(170,140,8,40,   PAL.livingSofaShade);
+    rect(272,140,8,40,   PAL.livingSofaShade);
+    rect(180,150,28,20, '#ffd2dd');
+    rect(216,150,28,20, '#ffd2dd');
+    rect(252,150,20,20, '#ffd2dd');
+
+    // ----- Rug on the floor -----
+    const rugY = 196;
+    rect(56,  rugY,    208, 30, '#d96b8e');
+    rect(60,  rugY+2,  200, 26, '#ffb8cf');
+    rect(66,  rugY+6,  188, 18, '#ffd2dd');
+    for (let i = 76; i < 244; i += 20) {
+      rect(i,   rugY+10, 6, 2, '#d96b8e');
+      rect(i-2, rugY+12, 10, 2, '#d96b8e');
+      rect(i,   rugY+14, 6, 2, '#d96b8e');
+    }
+    for (let i = 56; i < 264; i += 4) {
+      rect(i, rugY-2,  2, 2, '#d96b8e');
+      rect(i, rugY+30, 2, 2, '#d96b8e');
+    }
+
+    // ----- Floor lamp -----
+    const lampX = 290;
+    rect(lampX-4, 178, 14, 4, '#5b5278');
+    rect(lampX-6, 182, 18, 3, '#3b3552');
+    rect(lampX+2, 80, 2, 100, '#9b8da6');
+    rect(lampX-8, 60, 22, 4, PAL.livingLamp);
+    rect(lampX-6, 64, 18, 6, PAL.livingLamp);
+    rect(lampX-4, 70, 14, 4, '#ffe9a8');
+    ctx.fillStyle = 'rgba(255,217,104,0.18)';
+    ctx.fillRect(lampX-22, 78, 50, 12);
+
+    // ----- Toys (home5 only) -----
+    if (game.tier === 'home5') {
+      rect(82, 218, 10, 10, '#ffd968');
+      rect(84, 220, 6, 6, PAL.cream);
+      rect(85, 221, 1, 4, '#ff5e7a');
+      rect(88, 221, 1, 4, '#ff5e7a');
+      rect(85, 221, 4, 1, '#ff5e7a');
+      rect(85, 223, 4, 1, '#ff5e7a');
+      rect(94, 222, 8, 6, '#6bd4a1');
+      rect(94, 222, 8, 1, '#4fb085');
+      rect(124, 222, 8, 8, '#ff5e7a');
+      rect(126, 222, 4, 8, '#fff5e1');
+      rect(124, 224, 8, 4, '#fff5e1');
+      const bx = 144, by = 218;
+      rect(bx,    by,    10, 8, '#a37a4d');
+      rect(bx-1,  by-2,   3, 3, '#a37a4d');
+      rect(bx+8,  by-2,   3, 3, '#a37a4d');
+      rect(bx+2,  by+2,   1, 1, '#2a2540');
+      rect(bx+7,  by+2,   1, 1, '#2a2540');
+      rect(bx+4,  by+4,   2, 1, '#ff5e7a');
+      rect(bx,    by+8,   3, 2, '#a37a4d');
+      rect(bx+7,  by+8,   3, 2, '#a37a4d');
+    }
+  }
+
+  // Helper: draw a filled disc / ring
+  function drawCircleRing(cx, cy, rOuter, rInner, color){
+    ctx.fillStyle = color;
+    for (let dy = -rOuter; dy <= rOuter; dy++) {
+      const outerDx = Math.floor(Math.sqrt(rOuter*rOuter - dy*dy));
+      const innerSq = rInner*rInner - dy*dy;
+      if (innerSq < 0) {
+        ctx.fillRect(cx - outerDx, cy + dy, outerDx*2 + 1, 1);
+      } else {
+        const innerDx = Math.floor(Math.sqrt(innerSq));
+        // left segment
+        ctx.fillRect(cx - outerDx, cy + dy, outerDx - innerDx, 1);
+        // right segment
+        ctx.fillRect(cx + innerDx + 1, cy + dy, outerDx - innerDx, 1);
+      }
+    }
+  }
+
+  // Tiny family-portrait cloud sprite
+  function drawTinyCloud(x, y, isKid=false, alpha=1){
+    const a = ctx.globalAlpha;
+    if (alpha !== 1) ctx.globalAlpha = alpha;
+    rect(x+1, y+1, 10, 6, PAL.cloud);
+    rect(x,   y+3, 12, 4, PAL.cloud);
+    rect(x+2, y,    4, 2, PAL.cloud);
+    rect(x+6, y,    4, 2, PAL.cloud);
+    rect(x,   y+6, 12, 1, PAL.cloudShade);
+    // eyes
+    rect(x+4, y+3, 1, 1, PAL.cloudOutline);
+    rect(x+8, y+3, 1, 1, PAL.cloudOutline);
+    // smile
+    rect(x+5, y+5, 3, 1, PAL.cloudOutline);
+    if (isKid) {
+      // pink bow
+      rect(x+5, y-1, 2, 1, '#ff8fb1');
+      rect(x+4, y-2, 1, 1, '#ff8fb1');
+      rect(x+7, y-2, 1, 1, '#ff8fb1');
+    }
+    if (alpha !== 1) ctx.globalAlpha = a;
+  }
+
+  function drawOffice() {
+    rect(0,0,W,H, PAL.officeWall);             // full base
+    rect(0,H*0.7,W,H*0.3, PAL.officeFloor);
+    rect(0,H*0.7-2,W,2, '#b9d8ca');
+
+    // Rug on the floor
+    const rugY = 196;
+    rect(60, rugY, 200, 30, '#a8c2d6');           // outer rug
+    rect(64, rugY+2, 192, 26, '#7c9bbc');         // border
+    rect(72, rugY+6, 176, 18, '#c9d9e6');         // inner field
+    // rug pattern (diamonds)
+    for (let i = 80; i < 240; i += 20) {
+      rect(i, rugY+10, 6, 2, '#7c9bbc');
+      rect(i-2, rugY+12, 10, 2, '#7c9bbc');
+      rect(i, rugY+14, 6, 2, '#7c9bbc');
+    }
+    // rug fringe
+    for (let i = 60; i < 260; i += 4) {
+      rect(i, rugY-2, 2, 2, '#a8c2d6');
+      rect(i, rugY+30, 2, 2, '#a8c2d6');
+    }
+
+    // Window
+    rect(170,22,72,40, '#cfe7ff');
+    rect(170,22,72,2, PAL.inkSoft);
+    rect(170,60,72,2, PAL.inkSoft);
+    rect(206,22,2,40, PAL.inkSoft);
+
+    // Desk
+    rect(30,140,160,8, PAL.officeDesk);
+    rect(30,148,8,40, PAL.officeDeskShade);
+    rect(182,148,8,40,PAL.officeDeskShade);
+
+    // Monitor
+    rect(70,108,60,36, PAL.officeMonitor);
+    rect(74,112,52,28, '#7a6cff');
+    rect(78,118,20,2,'#fff5e1');
+    rect(78,124,32,2,'#fff5e1');
+    rect(78,130,16,2,'#fff5e1');
+    rect(94,140,12,4, PAL.officeMonitor);
+
+    // Chair
+    rect(140,160,20,28, PAL.officeChair);
+    rect(140,180,20,4, '#3b3552');
+    rect(148,188,4,12,  '#3b3552');
+
+    // Plant on desk
+    rect(155,128,12,14, PAL.officePot);
+    rect(150,114,22,16, PAL.officePlant);
+    rect(158,106,4,10,  PAL.officePlant);
+    rect(164,110,4,8,   PAL.officePlant);
+
+    // Right-corner shelf
+    const shelfX = 252, shelfY = 92;
+    rect(shelfX, shelfY+2, 56, 3, '#7a5a3a');     // shelf bracket shadow
+    rect(shelfX, shelfY,   56, 3, '#a37a4d');     // shelf top
+    rect(shelfX+2, shelfY-1, 2, 1, '#7a5a3a');    // L bracket
+    rect(shelfX+50,shelfY-1, 2, 1, '#7a5a3a');
+
+    // Camera on the shelf
+    const camX = shelfX + 18, camY = shelfY - 14;
+    // body
+    rect(camX,    camY+4,   24, 10, '#2a2540');
+    rect(camX,    camY+3,   24, 1,  '#3b3552');
+    rect(camX+2,  camY+13,  20, 1,  '#1a162e');
+    // top hump (viewfinder)
+    rect(camX+6,  camY,     10, 4, '#2a2540');
+    rect(camX+8,  camY-1,   6,  1, '#3b3552');
+    // shutter button
+    rect(camX+18, camY,     3, 2,  '#ff5e7a');
+    // lens
+    rect(camX+8,  camY+5,   8, 7, '#5b5278');
+    rect(camX+9,  camY+6,   6, 5, '#3b3552');
+    rect(camX+10, camY+7,   4, 3, '#7a6cff');
+    rect(camX+11, camY+7,   1, 1, '#fff5e1');     // glint
+    // strap
+    rect(camX-2,  camY+5,   2, 3, '#5b5278');
+    rect(camX+24, camY+5,   2, 3, '#5b5278');
+
+    // Wall art
+    rect(40,30,40,28, PAL.white);
+    rect(44,34,32,20, '#ffd2dd');
+    rect(50,40,8,8, PAL.officePlant);
+  }
+
+  function drawMountain() {
+    // Sunset / never-ending horizon
+    const horizonY = 140;
+
+    // Sky gradient: deep purple → coral → warm orange near horizon
+    for (let y=0;y<horizonY;y++){
+      const t = y / horizonY;
+      let c;
+      if (t < 0.35)      c = blend('#3a3370', '#7a6cff', t / 0.35);
+      else if (t < 0.65) c = blend('#7a6cff', '#ff8fb1', (t - 0.35) / 0.30);
+      else if (t < 0.88) c = blend('#ff8fb1', '#ffb454', (t - 0.65) / 0.23);
+      else               c = blend('#ffb454', '#ffd968', (t - 0.88) / 0.12);
+      rect(0, y, W, 1, c);
+    }
+
+    // Sun on horizon (centered, layered glow)
+    const cx = (W/2)|0;
+    const sunY = horizonY - 22;
+    // glow halo
+    rect(cx-22, sunY+2, 44, 16, 'rgba(255,217,104,0.25)');
+    rect(cx-16, sunY-2, 32, 22, 'rgba(255,217,104,0.45)');
+    // sun disc
+    rect(cx-10, sunY,    20, 4, '#ffe7a3');
+    rect(cx-12, sunY+4,  24, 8, '#ffd968');
+    rect(cx-10, sunY+12, 20, 4, '#ffb454');
+
+    // Soft horizon haze line
+    rect(0, horizonY-1, W, 1, 'rgba(255,180,84,0.55)');
+
+    // Side mountains only — leave middle open for the horizon
+    // Left cluster (silhouettes, dark)
+    drawTri(-12, horizonY,  74, 72, '#2a2540');
+    drawTri( 18, horizonY,  56, 56, '#3b3552');
+    drawTri( 50, horizonY,  44, 36, '#4d4669');
+    // Right cluster
+    drawTri(W-62, horizonY, 74, 72, '#2a2540');
+    drawTri(W-78, horizonY, 56, 56, '#3b3552');
+    drawTri(W-94, horizonY, 44, 36, '#4d4669');
+
+    // Water — darker blue
+    const waterTop = horizonY;
+    rect(0, waterTop, W, H - waterTop, '#1f4e8c');
+    // Subtle deeper band toward bottom
+    rect(0, waterTop + 30, W, H - (waterTop + 30), '#173d72');
+
+    // Sun reflection (warm streak shimmering down)
+    for (let y = waterTop; y < H; y += 2) {
+      const dy = y - waterTop;
+      const ww = Math.max(2, 20 - dy / 3);
+      const col = dy < 18 ? '#ffd968' : (dy < 36 ? '#ffb454' : '#ff8fb1');
+      // alternating dashes to feel watery
+      if (((y + (dy>>1)) & 3) !== 0) {
+        rect(cx - (ww/2)|0, y, ww|0, 1, col);
+      }
+    }
+
+    // Water highlight ripples
+    for (let y = waterTop + 6; y < H; y += 8) {
+      rect(0, y, W, 1, 'rgba(180,210,255,0.15)');
+    }
+  }
+  function drawTri(x,y,w,h,c){
+    // Upward-pointing triangle: base of width w sits ON the line y, apex is at y - h.
+    ctx.fillStyle = c;
+    for (let i=0;i<h;i++){
+      const span = ((i+1)/h) * w;
+      ctx.fillRect((x + (w-span)/2)|0, (y - h + i)|0, Math.max(1, span|0), 1);
+    }
+  }
+  function tree(x,y){
+    rect(x+3,y,2,4,'#6b4a2a');
+    rect(x,y-3,8,4, PAL.mountTree);
+    rect(x+1,y-7,6,4, PAL.mountTree);
+    rect(x+2,y-10,4,4, PAL.mountTree);
+  }
+
+  // ---------- Sprites ----------
+  // mood: 'normal' | 'happy' | 'sad'    dir: -1 (left) | 0 | +1 (right)
+  function drawCloud(x,y, slow=0, mood='normal', dir=0) {
+    const sad = mood === 'sad';
+    const body  = sad ? PAL.cloudRed      : PAL.cloud;
+    const shade = sad ? PAL.cloudRedShade : PAL.cloudShade;
+    rect(x+2, y+14, 28, 2, PAL.shadow);
+    rect(x+4, y+4,  24, 8, body);
+    rect(x+0, y+8,  32, 6, body);
+    rect(x+6, y+2,  10, 4, body);
+    rect(x+16,y+1,  10, 4, body);
+    rect(x+0, y+12, 32, 2, shade);
+    rect(x+6, y+12,  6, 2, shade);
+
+    // Eye horizontal offset (clamped so we don't run off the cloud)
+    const ex = sad ? 0 : (dir|0);
+
+    if (sad) {
+      // X eyes (frozen, no offset)
+      rect(x+9,  y+6, 1, 1, PAL.cloudOutline); rect(x+12, y+6, 1, 1, PAL.cloudOutline);
+      rect(x+10, y+7, 1, 1, PAL.cloudOutline); rect(x+11, y+7, 1, 1, PAL.cloudOutline);
+      rect(x+9,  y+8, 1, 1, PAL.cloudOutline); rect(x+12, y+8, 1, 1, PAL.cloudOutline);
+      rect(x+19, y+6, 1, 1, PAL.cloudOutline); rect(x+22, y+6, 1, 1, PAL.cloudOutline);
+      rect(x+20, y+7, 1, 1, PAL.cloudOutline); rect(x+21, y+7, 1, 1, PAL.cloudOutline);
+      rect(x+19, y+8, 1, 1, PAL.cloudOutline); rect(x+22, y+8, 1, 1, PAL.cloudOutline);
+      // sad/frown mouth
+      rect(x+12, y+11, 8, 1, PAL.cloudOutline);
+      rect(x+11, y+10, 1, 1, PAL.cloudOutline);
+      rect(x+20, y+10, 1, 1, PAL.cloudOutline);
+    } else if (mood === 'happy') {
+      // Happy: ^ ^ eyes + big smile
+      rect(x+9 +ex, y+7, 1, 1, PAL.cloudOutline);
+      rect(x+10+ex, y+6, 2, 1, PAL.cloudOutline);
+      rect(x+12+ex, y+7, 1, 1, PAL.cloudOutline);
+      rect(x+19+ex, y+7, 1, 1, PAL.cloudOutline);
+      rect(x+20+ex, y+6, 2, 1, PAL.cloudOutline);
+      rect(x+22+ex, y+7, 1, 1, PAL.cloudOutline);
+      // wide smile
+      rect(x+11, y+10, 10, 1, PAL.cloudOutline);
+      rect(x+10, y+9,  1, 1, PAL.cloudOutline);
+      rect(x+21, y+9,  1, 1, PAL.cloudOutline);
+      // blush
+      rect(x+8,  y+10, 1, 1, '#ffb8cf');
+      rect(x+23, y+10, 1, 1, '#ffb8cf');
+    } else {
+      // Normal: dot eyes (shifted by dir) + small smile
+      rect(x+10+ex, y+7, 2, 2, PAL.cloudOutline);
+      rect(x+20+ex, y+7, 2, 2, PAL.cloudOutline);
+      rect(x+12, y+10, 8, 1, PAL.cloudOutline);
+    }
+    if (slow>0){
+      ctx.fillStyle = PAL.inkSoft;
+      ctx.font = 'bold 8px monospace';
+      ctx.textBaseline = 'top';
+      ctx.fillText('z', x+30, y-2);
+      if (slow>1) ctx.fillText('z', x+34, y-6);
+    }
+  }
+
+  // Smaller "child" cloud for multiplayer mode
+  function drawSmallCloud(x, y, mood='normal', dir=0) {
+    const sad = mood === 'sad';
+    const body  = sad ? PAL.cloudRed      : PAL.cloud;
+    const shade = sad ? PAL.cloudRedShade : PAL.cloudShade;
+    rect(x+1, y+10, 22, 2, PAL.shadow);
+    rect(x+3, y+3,  18, 6, body);
+    rect(x+0, y+5,  24, 5, body);
+    rect(x+5, y+1,   8, 3, body);
+    rect(x+13,y+0,   8, 3, body);
+    rect(x+0, y+9,  24, 1, shade);
+
+    const ex = sad ? 0 : (dir|0);
+
+    if (sad) {
+      rect(x+6,  y+4, 1, 1, PAL.cloudOutline); rect(x+8,  y+4, 1, 1, PAL.cloudOutline);
+      rect(x+7,  y+5, 1, 1, PAL.cloudOutline);
+      rect(x+6,  y+6, 1, 1, PAL.cloudOutline); rect(x+8,  y+6, 1, 1, PAL.cloudOutline);
+      rect(x+15, y+4, 1, 1, PAL.cloudOutline); rect(x+17, y+4, 1, 1, PAL.cloudOutline);
+      rect(x+16, y+5, 1, 1, PAL.cloudOutline);
+      rect(x+15, y+6, 1, 1, PAL.cloudOutline); rect(x+17, y+6, 1, 1, PAL.cloudOutline);
+      rect(x+9,  y+8, 6, 1, PAL.cloudOutline);
+      rect(x+8,  y+7, 1, 1, PAL.cloudOutline);
+      rect(x+15, y+7, 1, 1, PAL.cloudOutline);
+    } else if (mood === 'happy') {
+      rect(x+6 +ex, y+5, 1, 1, PAL.cloudOutline);
+      rect(x+7 +ex, y+4, 2, 1, PAL.cloudOutline);
+      rect(x+9 +ex, y+5, 1, 1, PAL.cloudOutline);
+      rect(x+15+ex, y+5, 1, 1, PAL.cloudOutline);
+      rect(x+16+ex, y+4, 2, 1, PAL.cloudOutline);
+      rect(x+18+ex, y+5, 1, 1, PAL.cloudOutline);
+      rect(x+8,  y+7, 8, 1, PAL.cloudOutline);
+      rect(x+7,  y+6, 1, 1, PAL.cloudOutline);
+      rect(x+16, y+6, 1, 1, PAL.cloudOutline);
+      rect(x+11, y-1, 2, 1, '#ff8fb1');
+      rect(x+10, y-2, 1, 1, '#ff8fb1');
+      rect(x+13, y-2, 1, 1, '#ff8fb1');
+    } else {
+      rect(x+7 +ex, y+5, 1, 2, PAL.cloudOutline);
+      rect(x+16+ex, y+5, 1, 2, PAL.cloudOutline);
+      rect(x+9,  y+7, 6, 1, PAL.cloudOutline);
+      rect(x+11, y-1, 2, 1, '#ff8fb1');
+      rect(x+10, y-2, 1, 1, '#ff8fb1');
+      rect(x+13, y-2, 1, 1, '#ff8fb1');
+    }
+  }
+
+  function drawFile(f) {
+    const {type, x, y, w, h} = f;
+    if (type === 'photo')    drawPhoto(x,y,w,h);
+    else if (type === 'folder') drawFolder(x,y,w,h);
+    else if (type === 'document') drawDocument(x,y,w,h);
+    else if (type === 'video') drawVideo(x,y,w,h);
+    else if (type === 'copyright') drawCopyright(x,y,w,h);
+  }
+  function drawPhoto(x,y,w,h){
+    rect(x,y,w,h, PAL.photoFrame);
+    rect(x+1,y+1,w-2,h-3, PAL.photoSky);
+    rect(x+1,y+(h/2|0), w-2, (h/2-2)|0, PAL.photoHill);
+    rect(x+w-5,y+2,3,3, PAL.photoSun);
+    rect(x,y+h-1,w,1, PAL.cloudShade);
+  }
+  function drawFolder(x,y,w,h){
+    rect(x, y+2, 8, 3, PAL.folderTab);
+    rect(x, y+4, w, h-4, PAL.folderBack);
+    rect(x+1,y+5, w-2, h-6, PAL.folderFront);
+    rect(x, y+h-1, w, 1, '#a8651b');
+  }
+  function drawDocument(x,y,w,h){
+    rect(x,y,w,h, PAL.docBody);
+    rect(x+w-3, y, 3, 3, PAL.docCorner);
+    for (let i=0;i<4;i++) rect(x+2, y+3+i*3, w-4, 1, PAL.docLine);
+    rect(x,y+h-1,w,1, PAL.cloudShade);
+  }
+  function drawVideo(x,y,w,h){
+    rect(x,y,w,h, PAL.videoBody);
+    for (let i=0;i<w;i+=4){ rect(x+i+1,y+1,2,2,PAL.cream); rect(x+i+1,y+h-3,2,2,PAL.cream); }
+    rect(x+(w/2-2|0), y+(h/2-3|0), 2, 6, PAL.videoLight);
+    rect(x+(w/2|0),   y+(h/2-2|0), 2, 4, PAL.videoLight);
+    rect(x+(w/2+2|0), y+(h/2-1|0), 2, 2, PAL.videoLight);
+  }
+  function drawCopyright(x,y,w,h){
+    // red disc with white © symbol
+    rect(x+1, y,     w-2, 1, PAL.copyDark);
+    rect(x,   y+1,   w,   h-2, PAL.copyBody);
+    rect(x+1, y+h-1, w-2, 1, PAL.copyDark);
+    // outer ring of the © (rounded look)
+    rect(x+3, y+2, 8, 1, PAL.copyText);
+    rect(x+3, y+11,8, 1, PAL.copyText);
+    rect(x+2, y+3, 1, 8, PAL.copyText);
+    rect(x+11,y+3, 1, 8, PAL.copyText);
+    // inner C
+    rect(x+5, y+4, 4, 1, PAL.copyText);
+    rect(x+5, y+9, 4, 1, PAL.copyText);
+    rect(x+4, y+5, 1, 4, PAL.copyText);
+  }
+
+  // ---------- Spawn / Update ----------
+  function spawn() {
+    const def = pickFile();
+    const x = 4 + Math.random() * (W - def.w - 8);
+    const speedMul = 1 + Math.min(2.0, game.score / (POINTS_PER_TB * 4));
+    game.files.push({
+      type: def.type, points: def.points, bad: !!def.bad,
+      x, y: -def.h - 2, w: def.w, h: def.h,
+      vy: (game.gravity + Math.random()*20) * speedMul / 60,
+    });
+  }
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last)/1000);
+    last = now;
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  function update(dt) {
+    game.time += dt;
+
+    if (game.state === STATE.PLAY) {
+      // Decrement per-cloud timers
+      tickCloud(game.cloud, dt);
+      if (game.cloud2) tickCloud(game.cloud2, dt);
+
+      // Movement (slowed/blocked while frozen)
+      if (!game.cloud.frozen) moveCloud1(dt);
+      if (game.cloud2 && !game.cloud2.frozen) moveCloud2(dt);
+
+      const limit = currentLimitTB() === Infinity ? null : currentLimitTB() * POINTS_PER_TB;
+      const isFull = (limit !== null) && game.score >= limit;
+
+      // Spawn
+      game.spawnT += dt;
+      const spawnRate = Math.max(0.22, game.spawnEvery - game.score/2400);
+      if (game.spawnT > spawnRate) { game.spawnT = 0; spawn(); }
+
+      for (const f of game.files) f.y += f.vy * 60 * dt;
+
+      // Collisions: parent cloud first, then child cloud
+      const clouds = [game.cloud];
+      if (game.cloud2) clouds.push(game.cloud2);
+
+      for (const f of game.files) {
+        if (f.dead) continue;
+        for (const c of clouds) {
+          if (c.frozen) continue;
+          const hit =
+            f.y + f.h > c.y + 4 &&
+            f.y      < c.y + c.h - 2 &&
+            f.x + f.w > c.x + 2 &&
+            f.x      < c.x + c.w - 2;
+          if (hit) {
+            const isChild = (c === game.cloud2);
+            if (f.bad) {
+              c.frozen = true; c.freezeT = 2.0; c.happyT = 0;
+              spawnRain(20, c);
+              bleepSad(isChild);
+            } else if (!isFull) {
+              game.score += f.points;
+              spark(f.x + f.w/2, f.y + f.h/2);
+              c.happyT = 0.45;
+              bleepCatch(f.type, isChild);
+              if (currentLimitTB() === Infinity) pulseBar();
+            }
+            f.dead = true;
+            break;
+          }
+        }
+      }
+      game.files = game.files.filter(f => !f.dead && f.y < H + 20);
+
+      // Sparkles
+      for (const s of game.sparkles) { s.t += dt; s.y -= 30*dt; }
+      game.sparkles = game.sparkles.filter(s => s.t < 0.5);
+
+      // Rain (visual)
+      for (const r of game.rainDrops) { r.y += r.vy * 60 * dt; r.life -= dt; }
+      game.rainDrops = game.rainDrops.filter(r => r.life > 0 && r.y < H);
+      // continuously emit rain while any cloud frozen
+      for (const c of clouds) {
+        if (c.frozen && Math.random() < 0.55) spawnRain(2, c);
+      }
+
+      // Tier mechanics
+      const tb = game.score / POINTS_PER_TB;
+      if (game.tier === 'unlimited' && !game.switchedToPro) {
+        if (tb >= 8 && !game.shownUnlimitedUpgrade) {
+          game.shownUnlimitedUpgrade = true;
+          game.state = STATE.UPGRADE;
+          game.promptIndex = 0;
+        }
+      }
+
+      const effectiveLimit = currentLimitTB();
+      if (effectiveLimit !== Infinity && tb >= effectiveLimit) {
+        if (game.state === STATE.PLAY) {
+          game.state = STATE.FULL;
+          game.promptIndex = 0;
+        }
+      }
+    }
+
+    if (game.state === STATE.FULL) {
+      game.spawnT += dt;
+      if (game.spawnT > 0.45) { game.spawnT = 0; spawn(); }
+      for (const f of game.files) f.y += f.vy * 60 * dt;
+      game.files = game.files.filter(f => f.y < H + 20);
+    }
+
+    if (game.state === STATE.COUNTDOWN) {
+      game.countdownT += dt;
+      if (game.countdownT >= 1) {
+        game.countdownT = 0;
+        game.countdown -= 1;
+        if (game.countdown <= 0) {
+          game.state = STATE.PLAY;
+          last = performance.now();
+        }
+      }
+    }
+  }
+
+  function spawnRain(n, c){
+    c = c || game.cloud;
+    for (let i=0;i<n;i++){
+      game.rainDrops.push({
+        x: c.x + 4 + Math.random()*(c.w-8),
+        y: c.y + c.h - 2,
+        vy: 0.8 + Math.random()*0.6,
+        life: 0.8 + Math.random()*0.4,
+      });
+    }
+  }
+  function tickCloud(c, dt){
+    if (c.frozen) {
+      c.freezeT -= dt;
+      if (c.freezeT <= 0) { c.frozen = false; }
+    }
+    if (c.happyT > 0) c.happyT = Math.max(0, c.happyT - dt);
+  }
+
+  function currentLimitTB() {
+    if (!game.tier) return Infinity;
+    if (game.switchedToPro) return TIERS.pro.limitTB;
+    return TIERS[game.tier].limitTB;
+  }
+  function currentBg() {
+    if (!game.tier) return 'mountain';
+    if (game.switchedToPro) return 'office';
+    return TIERS[game.tier].bg;
+  }
+
+  function moveCloud1(dt) {
+    const tb = game.score / POINTS_PER_TB;
+    let stepDivisor = 1;
+    if (game.tier === 'unlimited' && !game.switchedToPro) {
+      if (tb >= 7) stepDivisor = 3;
+      else if (tb >= 6) stepDivisor = 2;
+    }
+    if (stepDivisor === 1) {
+      if (keys.left)  game.cloud.x -= game.cloud.speed * 60 * dt;
+      if (keys.right) game.cloud.x += game.cloud.speed * 60 * dt;
+      leftPresses = 0; rightPresses = 0;
+    } else {
+      const STEP = 12;
+      if (leftPresses >= stepDivisor)  { game.cloud.x -= STEP; leftPresses = 0; }
+      if (rightPresses >= stepDivisor) { game.cloud.x += STEP; rightPresses = 0; }
+    }
+    game.cloud.x = Math.max(0, Math.min(W - game.cloud.w, game.cloud.x));
+  }
+  function moveCloud2(dt) {
+    if (keys2.left)  game.cloud2.x -= game.cloud2.speed * 60 * dt;
+    if (keys2.right) game.cloud2.x += game.cloud2.speed * 60 * dt;
+    game.cloud2.x = Math.max(0, Math.min(W - game.cloud2.w, game.cloud2.x));
+  }
+
+  function spark(x,y){
+    for (let i=0;i<6;i++){
+      game.sparkles.push({ x: x + (Math.random()*8-4), y: y + (Math.random()*4-2), t:0 });
+    }
+  }
+  function moodOf(c){
+    if (c.frozen) return 'sad';
+    if (c.happyT > 0) return 'happy';
+    return 'normal';
+  }
+  function syncSpeechBubble(el, c){
+    if (!el) return;
+    if (c && c.frozen && game.state === STATE.PLAY) {
+      const cx = c.x + c.w/2;
+      const cy = c.y;
+      el.style.left = `${(cx / W) * 100}%`;
+      el.style.top  = `${(cy / H) * 100}%`;
+      el.hidden = false;
+    } else {
+      el.hidden = true;
+    }
+  }
+
+  // ---------- Render ----------
+  function render() {
+    if (game.state === STATE.WELCOME || game.state === STATE.SUBHELP) {
+      // Solid pastel canvas behind the welcome dialog
+      rect(0,0,W,H, PAL.welcomeBg);
+    } else {
+      drawBackground(currentBg());
+    }
+
+    // Files
+    for (const f of game.files) drawFile(f);
+
+    // Rain
+    for (const r of game.rainDrops) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, r.life));
+      rect(r.x|0, r.y|0, 1, 3, PAL.rain);
+      ctx.globalAlpha = 1;
+    }
+
+    // Cloud(s)
+    const tb = game.score / POINTS_PER_TB;
+    let slow = 0;
+    if (game.tier === 'unlimited' && !game.switchedToPro) {
+      if (tb >= 7) slow = 2;
+      else if (tb >= 6) slow = 1;
+    }
+    if (game.state !== STATE.WELCOME && game.state !== STATE.SUBHELP) {
+      const m1 = moodOf(game.cloud);
+      const d1 = (keys.left && !keys.right) ? -1 : (keys.right && !keys.left) ? 1 : 0;
+      drawCloud(game.cloud.x, game.cloud.y, slow, m1, d1);
+      if (game.cloud2) {
+        const m2 = moodOf(game.cloud2);
+        const d2 = (keys2.left && !keys2.right) ? -1 : (keys2.right && !keys2.left) ? 1 : 0;
+        drawSmallCloud(game.cloud2.x, game.cloud2.y, m2, d2);
+      }
+    }
+    // Speech bubbles for the copyright trap
+    syncSpeechBubble(document.getElementById('bubble1'), game.cloud);
+    syncSpeechBubble(document.getElementById('bubble2'), game.cloud2);
+
+    // Sparkles
+    for (const s of game.sparkles) {
+      ctx.globalAlpha = 1 - s.t/0.5;
+      rect(s.x, s.y, 2, 2, '#fff5e1');
+      ctx.globalAlpha = 1;
+    }
+
+    // HUD + dialog visibility
+    syncHud();
+    syncDialog();
+  }
+
+  function syncHud(){
+    const playing = game.state === STATE.PLAY || game.state === STATE.PAUSE
+                  || game.state === STATE.FULL || game.state === STATE.UPGRADE
+                  || game.state === STATE.CALL_CS || game.state === STATE.COUNTDOWN;
+    hud.hidden = !playing;
+    // Update hint bar
+    if (isMulti() && playing) {
+      hintEl.innerHTML =
+        '<span class="key">P1</span> <span class="arrow">◄</span><span class="arrow">►</span> ' +
+        '<span class="key">P2</span> <span class="key">A</span><span class="key">D</span> • ' +
+        '<span class="key">ENTER</span> PAUSE • ' +
+        '<span class="key">SPACE</span> SELECT';
+    } else {
+      hintEl.innerHTML =
+        '<span class="arrow">◄</span><span class="arrow">►</span> ' +
+        '<span class="key">MOVE</span> • ' +
+        '<span class="key">ENTER</span> PAUSE • ' +
+        '<span class="key">SPACE</span> SELECT';
+    }
+    if (!playing) return;
+
+    const tb = game.score / POINTS_PER_TB;
+    const tierName = game.switchedToPro ? 'PRO • 10 TB (auto-switched)' :
+                     (game.tier ? TIERS[game.tier].name : '—');
+    tierEl.textContent = tierName;
+    tbEl.textContent   = `${tb.toFixed(2)} TB`;
+
+    const limit = currentLimitTB();
+    // Update bar
+    if (limit !== Infinity) {
+      barFill.classList.remove('indeterminate');
+      const p = Math.min(1, tb / limit);
+      barFill.style.width = (p*100).toFixed(1) + '%';
+      barFill.style.background =
+        p < 0.7 ? 'var(--ok)' : (p < 0.95 ? 'var(--warn)' : 'var(--bad)');
+      barLabel.textContent = `STORAGE • ${tb.toFixed(2)} / ${limit} TB`;
+      [...barEl.querySelectorAll('.bar-tick')].forEach(n => n.remove());
+      tbEl.textContent = `${tb.toFixed(2)} TB`;
+      tbEl.style.visibility = '';
+    } else {
+      // Unlimited: bar doesn't fill, just shimmers; TB still counts visibly
+      barFill.style.width = '';                // managed by CSS
+      barFill.style.background = '';
+      barFill.classList.add('indeterminate');
+      const slowState = tb >= 7 ? ' • slowing down' :
+                        tb >= 6 ? ' • cloud heavy'  : '';
+      barLabel.textContent = `STORAGE • ${tb.toFixed(2)} TB / UNLIMITED${slowState}`;
+      [...barEl.querySelectorAll('.bar-tick')].forEach(n => n.remove());
+      tbEl.textContent = `${tb.toFixed(2)} TB`;
+      tbEl.style.visibility = '';
+    }
+  }
+
+  function pulseBar(){
+    if (!barFill.classList.contains('indeterminate')) return;
+    barFill.classList.remove('pulse');
+    void barFill.offsetWidth;
+    barFill.classList.add('pulse');
+    setTimeout(() => barFill.classList.remove('pulse'), 260);
+  }
+
+  function syncDialog(){
+    const s = game.state;
+    if (s === STATE.PLAY) { dialog.classList.add('hidden'); return; }
+    dialog.classList.remove('hidden');
+
+    if (s === STATE.WELCOME) renderWelcomeUI();
+    else if (s === STATE.COUNTDOWN) renderCountdownUI();
+    else if (s === STATE.PAUSE) renderPauseUI();
+    else if (s === STATE.FULL) renderFullUI();
+    else if (s === STATE.UPGRADE) renderUpgradeUI();
+    else if (s === STATE.CALL_CS) renderCallCS_UI();
+    else if (s === STATE.SUBHELP) renderSubhelpUI();
+  }
+
+  // ---------- Dialog UI builders ----------
+  function renderWelcomeUI(){
+    ensureCard();
+    const opts = [
+      { key:'home',      label:'HOME • 1 TB',  subtle:false },
+      { key:'home5',     label:'HOME • 5 TB',  subtle:false, tag:'multiplayer' },
+      { key:'pro',       label:'PRO • 10 TB',  subtle:false },
+      { key:'unlimited', label:'UNLIMITED',    subtle:false },
+      { key:'help',      label:"can't find your subscription?", subtle:true },
+    ];
+    card.innerHTML = `
+      <h1>JOTTACLOUD FILE CATCHER</h1>
+      <div class="sub">catch your files. fill the cloud.<br>watch out for pirated stuff.</div>
+      <div class="section-heading">Choose your subscription</div>
+      <div class="opts">
+        ${opts.map((o,i) => `
+          <div class="opt ${o.subtle?'subtle ':''}${i===game.welcomeIndex?'sel':''}"
+               data-i="${i}" data-action="welcome">
+            ${o.label}
+            ${o.tag ? `<span class="multi-tag">${o.tag}</span>` : ''}
+          </div>
+        `).join('')}
+      </div>
+      <div class="footer">↑ ↓ choose • space / enter to start</div>
+    `;
+    attachClicks('welcome');
+  }
+
+  function renderSubhelpUI(){
+    ensureCard();
+    card.innerHTML = `
+      <h1 style="color:var(--accent)">NEED A DIFFERENT PLAN?</h1>
+      <div class="sub" style="line-height:1.9">
+        visit <a href="https://www.jottacloud.com" target="_blank" rel="noopener">jottacloud.com</a><br>
+        for the full plan selection.
+      </div>
+      <div class="opts">
+        <div class="opt sel" data-i="0" data-action="subhelp">BACK</div>
+      </div>
+    `;
+    attachClicks('subhelp');
+  }
+
+  function renderCountdownUI(){
+    const n = Math.max(1, game.countdown);
+    card.style.display = 'none';
+    if (!dialog.querySelector('.cd')) {
+      dialog.innerHTML = `<div class="cd" style="text-align:center">
+        <div class="countdown-num" id="cdn">${n}</div>
+        <div class="countdown-sub">GET READY</div>
+      </div>`;
+    } else {
+      dialog.querySelector('#cdn').textContent = n;
+    }
+  }
+
+  function renderPauseUI(){
+    ensureCard();
+    card.innerHTML = `
+      <h1 style="color:var(--accent)">PAUSED</h1>
+      <div class="sub" style="line-height:1.9">
+        with <span style="color:var(--accent)">jottacloud</span>, you don't have to pause.<br>
+        we take care of your files.
+      </div>
+      <div class="opts">
+        <div class="opt ${game.promptIndex===0?'sel':''}" data-i="0" data-action="pause">RESUME</div>
+        <div class="opt ${game.promptIndex===1?'sel':''}" data-i="1" data-action="pause">BACK TO WELCOME</div>
+      </div>
+      <div class="footer">↑ ↓ choose • enter / space to confirm • esc to resume</div>
+    `;
+    attachClicks('pause');
+  }
+
+  function renderFullUI(){
+    ensureCard();
+    const tb = (game.score/POINTS_PER_TB).toFixed(2);
+    card.innerHTML = `
+      <h1 class="bad">STORAGE FULL!</h1>
+      <div class="sub">you stored <strong>${tb} TB</strong></div>
+      <div class="opts">
+        <div class="opt ${game.promptIndex===0?'sel':''}" data-i="0" data-action="full">UPGRADE?</div>
+        <div class="opt ${game.promptIndex===1?'sel':''}" data-i="1" data-action="full">play again</div>
+      </div>
+    `;
+    attachClicks('full');
+  }
+
+  function renderUpgradeUI(){
+    ensureCard();
+    card.innerHTML = `
+      <h1 style="color:var(--accent)">A BIT TOO SLOW?</h1>
+      <div class="sub">upgrade to <strong>PRO</strong>!<br>full speed, 10 TB.</div>
+      <div class="opts">
+        <div class="opt ${game.promptIndex===0?'sel':''}" data-i="0" data-action="upgrade">YES, upgrade to PRO</div>
+        <div class="opt ${game.promptIndex===1?'sel':''}" data-i="1" data-action="upgrade">no, keep going</div>
+      </div>
+    `;
+    attachClicks('upgrade');
+  }
+
+  function renderCallCS_UI(){
+    ensureCard();
+    card.innerHTML = `
+      <h1>PLEASE CALL<br>CUSTOMER SERVICE</h1>
+      <div class="sub">we have plans bigger than 10 TB.</div>
+      <div class="opts">
+        <div class="opt sel" data-i="0" data-action="callcs">play again</div>
+      </div>
+    `;
+    attachClicks('callcs');
+  }
+
+  function ensureCard(){
+    if (!dialog.contains(card)) {
+      dialog.innerHTML = '';
+      dialog.appendChild(card);
+    }
+    card.style.display = '';
+  }
+
+  function attachClicks(action){
+    card.querySelectorAll('.opt').forEach(el => {
+      el.onclick = () => {
+        const i = +el.dataset.i;
+        if (action === 'welcome') { game.welcomeIndex = i; uiSelect(); }
+        else { game.promptIndex = i; uiSelect(); }
+      };
+    });
+  }
+
+  // ---------- UI nav ----------
+  function uiNav(dir){
+    if (game.state === STATE.WELCOME) game.welcomeIndex = (game.welcomeIndex + dir + 5) % 5;
+    else if (game.state === STATE.PAUSE)   game.promptIndex = (game.promptIndex + dir + 2) % 2;
+    else if (game.state === STATE.FULL)    game.promptIndex = (game.promptIndex + dir + 2) % 2;
+    else if (game.state === STATE.UPGRADE) game.promptIndex = (game.promptIndex + dir + 2) % 2;
+  }
+  function resetToWelcome(){
+    game = freshGame();
+    ensureCard();
+    syncHud();
+    syncDialog();
+  }
+  function uiSelect(){
+    if (game.state === STATE.WELCOME) {
+      if (game.welcomeIndex === 4) { game.state = STATE.SUBHELP; return; }
+      const tier = ['home','home5','pro','unlimited'][game.welcomeIndex];
+      startGame(tier);
+    } else if (game.state === STATE.SUBHELP) {
+      game.state = STATE.WELCOME;
+    } else if (game.state === STATE.COUNTDOWN) {
+      // ignore
+    } else if (game.state === STATE.PAUSE) {
+      if (game.promptIndex === 0) togglePause();           // resume
+      else { resetToWelcome(); }                            // back to welcome
+    } else if (game.state === STATE.FULL) {
+      if (game.promptIndex === 0) {
+        if (game.tier === 'pro' || game.switchedToPro) game.state = STATE.CALL_CS;
+        else game = freshGame();
+      } else { resetToWelcome(); }
+    } else if (game.state === STATE.UPGRADE) {
+      if (game.promptIndex === 0) { game.switchedToPro = true; game.state = STATE.PLAY; }
+      else { game.state = STATE.PLAY; }
+    } else if (game.state === STATE.CALL_CS) {
+      resetToWelcome();
+    }
+  }
+
+  function togglePause(){
+    if (game.state === STATE.PLAY) { game.state = STATE.PAUSE; game.promptIndex = 0; }
+    else if (game.state === STATE.PAUSE) { game.state = STATE.PLAY; last = performance.now(); }
+  }
+
+  function startGame(tier){
+    game = freshGame();
+    game.tier = tier;
+    game.state = STATE.COUNTDOWN;
+    game.countdown = 5;
+    game.countdownT = 0;
+    if (TIERS[tier].multi) {
+      // Position parent cloud-left, child cloud-right
+      game.cloud.x = W/2 - 50;
+      game.cloud2 = {
+        x: W/2 + 18, y: H - 32,
+        w: 24, h: 12, speed: 1.6,
+        frozen:false, freezeT:0, happyT:0,
+      };
+    }
+  }
+
+  // initial dialog (welcome) renders on first frame
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
