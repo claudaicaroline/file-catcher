@@ -92,6 +92,27 @@
     40%  { transform: scale(0.9) rotate(-12deg); color:#ff5e7a; }
     100% { transform: scale(1)   rotate(0);    color: rgba(20,15,40,0.18); }
   }
+
+  /* A heart that visibly tumbles down the screen when a life is lost */
+  .falling-heart{
+    position:absolute;
+    pointer-events:none;
+    z-index: 7;
+    color:#ff5e7a;
+    text-shadow: 0 1px 0 rgba(20,15,40,0.35);
+    font-size: 14px;
+    line-height: 1;
+    transform: translate(-50%, 0);
+    animation: heart-fall 1.8s cubic-bezier(.4,.05,.6,1) forwards;
+    will-change: transform, opacity;
+  }
+  @keyframes heart-fall{
+    0%   { transform: translate(-50%, 0)          rotate(0)     scale(1.2); opacity: 1; }
+    15%  { transform: translate(-50%, 12px)       rotate(-25deg) scale(1.3); opacity: 1; }
+    35%  { transform: translate(-58%, 60px)       rotate(180deg) scale(1.1); opacity: 1; }
+    65%  { transform: translate(-46%, 220px)      rotate(450deg) scale(0.95); opacity: .85; }
+    100% { transform: translate(-50%, var(--fall, 520px)) rotate(900deg) scale(.7); opacity: 0; }
+  }
   .hud .bar-wrap{
     display:flex; flex-direction:column; align-items:center; gap:4px;
     min-width: 200px;
@@ -440,7 +461,7 @@
     try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
     catch(e){ audioCtx = null; }
   }
-  function tone(freq, dur, type='square', vol=0.10) {
+  function tone(freq, dur, type='square', vol=0.05) {
     if (!audioCtx) return;
     const t = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
@@ -456,8 +477,8 @@
     // chiptune blip — slight pitch by file type; child cloud is one octave higher
     const base = { photo:880, folder:1175, document:587, video:988 }[type] || 880;
     const f = octaveUp ? base * 2 : base;
-    tone(f,        0.06, 'square', 0.10);
-    tone(f * 1.5,  0.05, 'square', 0.07);
+    tone(f,        0.06, 'square', 0.05);
+    tone(f * 1.5,  0.05, 'square', 0.035);
   }
   function bleepSad(octaveUp=false) {
     if (!audioCtx) return;
@@ -469,15 +490,142 @@
     const endF   = octaveUp ? 180 :  90;
     osc.frequency.setValueAtTime(startF, t);
     osc.frequency.exponentialRampToValueAtTime(endF, t + 0.55);
-    gain.gain.setValueAtTime(0.14, t);
+    gain.gain.setValueAtTime(0.07, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
     osc.connect(gain).connect(audioCtx.destination);
     osc.start(t); osc.stop(t + 0.65);
+  }
+  // Longer, more dramatic sad descending sound when the cloud dies
+  function bleepEvaporate() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // First swooping descent
+    const o1 = audioCtx.createOscillator();
+    const g1 = audioCtx.createGain();
+    o1.type = 'sawtooth';
+    o1.frequency.setValueAtTime(660, t);
+    o1.frequency.exponentialRampToValueAtTime(110, t + 1.3);
+    g1.gain.setValueAtTime(0.09, t);
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
+    o1.connect(g1).connect(audioCtx.destination);
+    o1.start(t); o1.stop(t + 1.45);
+    // Soft sub layer
+    const o2 = audioCtx.createOscillator();
+    const g2 = audioCtx.createGain();
+    o2.type = 'triangle';
+    o2.frequency.setValueAtTime(220, t + 0.05);
+    o2.frequency.exponentialRampToValueAtTime(55, t + 1.2);
+    g2.gain.setValueAtTime(0.05, t + 0.05);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
+    o2.connect(g2).connect(audioCtx.destination);
+    o2.start(t + 0.05); o2.stop(t + 1.45);
+    // Final low thud at the end
+    const o3 = audioCtx.createOscillator();
+    const g3 = audioCtx.createGain();
+    o3.type = 'sine';
+    o3.frequency.setValueAtTime(70, t + 1.2);
+    g3.gain.setValueAtTime(0.09, t + 1.2);
+    g3.gain.exponentialRampToValueAtTime(0.001, t + 1.7);
+    o3.connect(g3).connect(audioCtx.destination);
+    o3.start(t + 1.2); o3.stop(t + 1.75);
   }
   // Initialize audio on the first interaction with the page
   ['pointerdown','keydown','touchstart'].forEach(ev =>
     window.addEventListener(ev, initAudio, {once:false})
   );
+
+  // ---------- Background music (chiptune) ----------
+  let musicEnabled = true;
+  let musicNextTime = 0;
+  let musicStep = 0;
+
+  const NOTE_FREQ = {
+    'C3':130.81,'D3':146.83,'E3':164.81,'F3':174.61,'G3':196.00,'A3':220.00,'B3':246.94,
+    'C4':261.63,'D4':293.66,'E4':329.63,'F4':349.23,'G4':392.00,'A4':440.00,'B4':493.88,
+    'C5':523.25,'D5':587.33,'E5':659.25,'F5':698.46,'G5':783.99,'A5':880.00,'B5':987.77,
+    '-':0,
+  };
+  // 32 eighth-note steps (~7s loop). C-Am-F-G x 2 with a small variation in the second half.
+  const MELODY = [
+    'C5','E5','G5','E5',  'A4','C5','E5','C5',
+    'F4','A4','C5','A4',  'G4','B4','D5','B4',
+    'C5','E5','G5','C5',  'A4','C5','E5','G5',
+    'F4','A4','C5','E5',  'D5','G4','C5','-',
+  ];
+  const BASS = [
+    'C3','-','C3','-',  'A3','-','A3','-',
+    'F3','-','F3','-',  'G3','-','G3','-',
+    'C3','-','C3','-',  'A3','-','A3','-',
+    'F3','-','F3','-',  'G3','-','G3','G3',
+  ];
+
+  function scheduleMusicNote(freq, time, dur, type, vol) {
+    if (!audioCtx || !freq) return;
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(vol, time + 0.006);
+    gain.gain.linearRampToValueAtTime(vol * 0.45, time + dur * 0.65);
+    gain.gain.linearRampToValueAtTime(0, time + dur);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(time);
+    osc.stop(time + dur + 0.02);
+  }
+
+  // Calm sine-wave arpeggio loop for the welcome / subhelp screens
+  // Slower tempo, soft tone, gentle dynamics.
+  const WELCOME_MELODY = [
+    'C4','E4','G4','B4', 'C5','B4','G4','E4',
+    'A3','C4','E4','G4', 'A4','G4','E4','C4',
+    'F3','A3','C4','E4', 'F4','E4','C4','A3',
+    'G3','B3','D4','F4', 'G4','F4','D4','B3',
+  ];
+  const WELCOME_BASS = [
+    'C3','-','-','-',  '-','-','-','-',
+    'A2','-','-','-',  '-','-','-','-',
+    'F2','-','-','-',  '-','-','-','-',
+    'G2','-','-','-',  '-','-','-','-',
+  ];
+  // A2 / F2 / G2 frequencies (one octave below A3/F3/G3)
+  NOTE_FREQ['A2'] = 110.00;
+  NOTE_FREQ['F2'] =  87.31;
+  NOTE_FREQ['G2'] =  98.00;
+
+  function tickMusic() {
+    if (!audioCtx || !musicEnabled) {
+      musicNextTime = 0; musicStep = 0;
+      return;
+    }
+    const inGame = game && (game.state === STATE.PLAY ||
+                            game.state === STATE.COUNTDOWN ||
+                            game.state === STATE.PAUSE);
+    const inWelcome = game && (game.state === STATE.WELCOME || game.state === STATE.SUBHELP);
+    if (!inGame && !inWelcome) {
+      musicNextTime = 0; musicStep = 0;
+      return;
+    }
+    if (musicNextTime === 0) musicNextTime = audioCtx.currentTime + 0.05;
+
+    // Same calm sine loop everywhere — welcome and gameplay alike.
+    // Soften slightly when paused.
+    const STEP_S = 0.42;
+    const paused = game && game.state === STATE.PAUSE;
+    const melVol  = paused ? 0.014 : 0.022;
+    const bassVol = paused ? 0.018 : 0.030;
+    while (musicNextTime < audioCtx.currentTime + 0.3) {
+      const i  = musicStep % WELCOME_MELODY.length;
+      const mn = WELCOME_MELODY[i];
+      const bn = WELCOME_BASS[i];
+      scheduleMusicNote(NOTE_FREQ[mn], musicNextTime, STEP_S * 1.6, 'sine',     melVol);
+      scheduleMusicNote(NOTE_FREQ[bn], musicNextTime, STEP_S * 3.0, 'triangle', bassVol);
+      musicNextTime += STEP_S;
+      musicStep++;
+    }
+  }
+  // Same loop everywhere, so we let the step counter carry through transitions.
+  setInterval(tickMusic, 60);
 
   // ---------- Input ----------
   const keys  = {left:false,right:false};   // cloud 1 (arrows)
@@ -507,6 +655,10 @@
     if (e.code === 'Escape') {
       if (game.state === STATE.PLAY)  togglePause();
       else if (game.state === STATE.PAUSE) togglePause();   // quick-resume
+    }
+    if (e.code === 'KeyM') {
+      musicEnabled = !musicEnabled;
+      if (!musicEnabled) { musicNextTime = 0; musicStep = 0; }
     }
     if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space','Enter'].includes(e.code)) e.preventDefault();
   }, {passive:false});
@@ -579,13 +731,61 @@
   }
   function isMulti(){ return game.tier && TIERS[game.tier] && TIERS[game.tier].multi; }
 
+  // ---------- Welcome backdrop: floating clouds ----------
+  let welcomeClouds = [];
+  function makeWelcomeCloud(initial) {
+    const r = Math.random();
+    let kind;
+    if      (r < 0.32) kind = 'plainBig';
+    else if (r < 0.42) kind = 'normal';
+    else if (r < 0.49) kind = 'happy';
+    else if (r < 0.55) kind = 'sad';
+    else if (r < 0.64) kind = 'kid';
+    else if (r < 0.86) kind = 'tinyPlain';
+    else                kind = 'tinyFace';
+    const wide = (kind === 'plainBig' || kind === 'normal' || kind === 'happy' || kind === 'sad') ? 32
+               : (kind === 'kid') ? 24 : 12;
+    return {
+      kind,
+      x: Math.random() * (W - wide),
+      y: initial ? Math.random() * (H + 20) - 10 : H + 6 + Math.random() * 10,
+      vy: -(3 + Math.random() * 6),     // 3 - 9 px/s upward
+    };
+  }
+  function tickWelcomeClouds(dt) {
+    if (welcomeClouds.length === 0) {
+      for (let i = 0; i < 9; i++) welcomeClouds.push(makeWelcomeCloud(true));
+    }
+    for (const c of welcomeClouds) {
+      c.y += c.vy * dt;
+      if (c.y < -28) Object.assign(c, makeWelcomeCloud(false));
+    }
+  }
+  function drawWelcomeClouds() {
+    if (welcomeClouds.length === 0) return;
+    ctx.globalAlpha = 0.42;          // muted
+    for (const c of welcomeClouds) {
+      const x = c.x|0, y = c.y|0;
+      switch (c.kind) {
+        case 'plainBig':  drawPlainCloud(x, y); break;
+        case 'normal':    drawCloud(x, y, 0, 'normal'); break;
+        case 'happy':     drawCloud(x, y, 0, 'happy');  break;
+        case 'sad':       drawCloud(x, y, 0, 'sad');    break;
+        case 'kid':       drawSmallCloud(x, y, 'normal'); break;
+        case 'tinyFace':  drawTinyCloud(x, y, false); break;
+        default:          drawTinyPlainCloud(x, y);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // weights sum to 100. (Original ratios 50/30/10/10 preserved within ~3% noise budget.)
   const FILES = [
-    { type:'photo',     points:5,  weight:48, w:14, h:12 },
-    { type:'folder',    points:20, weight:29, w:18, h:14 },
-    { type:'document',  points:1,  weight:10, w:12, h:14 },
+    { type:'photo',     points:5,  weight:46, w:14, h:12 },
+    { type:'folder',    points:20, weight:28, w:18, h:14 },
+    { type:'document',  points:1,  weight:9,  w:12, h:14 },
     { type:'video',     points:10, weight:9,  w:18, h:14 },
-    { type:'copyright', points:0,  weight:4,  w:14, h:14, bad:true },
+    { type:'copyright', points:0,  weight:8,  w:14, h:14, bad:true },
   ];
   function pickFile() {
     const r = Math.random()*100;
@@ -795,6 +995,23 @@
     }
   }
 
+  // Plain (faceless) versions for the welcome backdrop
+  function drawPlainCloud(x, y){
+    rect(x+2, y+14, 28, 2, PAL.shadow);
+    rect(x+4, y+4,  24, 8, PAL.cloud);
+    rect(x+0, y+8,  32, 6, PAL.cloud);
+    rect(x+6, y+2,  10, 4, PAL.cloud);
+    rect(x+16,y+1,  10, 4, PAL.cloud);
+    rect(x+0, y+12, 32, 2, PAL.cloudShade);
+  }
+  function drawTinyPlainCloud(x, y){
+    rect(x+1, y+1, 10, 6, PAL.cloud);
+    rect(x,   y+3, 12, 4, PAL.cloud);
+    rect(x+2, y,    4, 2, PAL.cloud);
+    rect(x+6, y,    4, 2, PAL.cloud);
+    rect(x,   y+6, 12, 1, PAL.cloudShade);
+  }
+
   // Tiny family-portrait cloud sprite
   function drawTinyCloud(x, y, isKid=false, alpha=1){
     const a = ctx.globalAlpha;
@@ -819,39 +1036,152 @@
   }
 
   function drawOffice() {
-    rect(0,0,W,H, PAL.officeWall);             // full base
+    rect(0,0,W,H, PAL.officeWall);             // wall base
     rect(0,H*0.7,W,H*0.3, PAL.officeFloor);
     rect(0,H*0.7-2,W,2, '#b9d8ca');
 
-    // Rug on the floor
+    // ---------- Rug on the floor ----------
     const rugY = 196;
-    rect(60, rugY, 200, 30, '#a8c2d6');           // outer rug
-    rect(64, rugY+2, 192, 26, '#7c9bbc');         // border
-    rect(72, rugY+6, 176, 18, '#c9d9e6');         // inner field
-    // rug pattern (diamonds)
+    rect(60, rugY, 200, 30, '#a8c2d6');
+    rect(64, rugY+2, 192, 26, '#7c9bbc');
+    rect(72, rugY+6, 176, 18, '#c9d9e6');
     for (let i = 80; i < 240; i += 20) {
       rect(i, rugY+10, 6, 2, '#7c9bbc');
       rect(i-2, rugY+12, 10, 2, '#7c9bbc');
       rect(i, rugY+14, 6, 2, '#7c9bbc');
     }
-    // rug fringe
     for (let i = 60; i < 260; i += 4) {
       rect(i, rugY-2, 2, 2, '#a8c2d6');
       rect(i, rugY+30, 2, 2, '#a8c2d6');
     }
 
-    // Window
-    rect(170,22,72,40, '#cfe7ff');
-    rect(170,22,72,2, PAL.inkSoft);
-    rect(170,60,72,2, PAL.inkSoft);
-    rect(206,22,2,40, PAL.inkSoft);
+    // ---------- Larger window with city skyline ----------
+    const wX = 110, wY = 18, wW = 134, wH = 72;
+    // sky inside (gentle gradient)
+    rect(wX, wY,        wW, 16, '#e7f3fe');
+    rect(wX, wY+16,     wW, 22, '#cfe7ff');
+    rect(wX, wY+38,     wW, 16, '#bedcef');
+    rect(wX, wY+54,     wW, wH-54, '#a8c5e0');
+    // sun glow
+    rect(wX+wW-30, wY+8,  6, 4, '#ffd968');
+    rect(wX+wW-32, wY+10, 10, 2, '#ffd968');
+    rect(wX+wW-30, wY+12, 6,  1, '#ffd968');
+    // distant lighter buildings
+    const farB = [
+      { x: wX+4,   w: 12, h: 30 },
+      { x: wX+14,  w: 16, h: 44 },
+      { x: wX+30,  w: 10, h: 26 },
+      { x: wX+42,  w: 18, h: 38 },
+      { x: wX+62,  w: 14, h: 30 },
+      { x: wX+78,  w: 16, h: 42 },
+      { x: wX+96,  w: 14, h: 34 },
+      { x: wX+112, w: 18, h: 46 },
+    ];
+    for (const b of farB) {
+      const baseY = wY + wH - b.h;
+      rect(b.x, baseY, b.w, b.h, '#9aa6c4');
+      // antenna sometimes
+      if ((b.x*7 + b.h*3) % 5 === 0) rect(b.x + (b.w/2|0), baseY-3, 1, 3, '#9aa6c4');
+    }
+    // foreground darker buildings
+    const nearB = [
+      { x: wX+0,   w: 14, h: 36 },
+      { x: wX+12,  w: 12, h: 28 },
+      { x: wX+22,  w: 18, h: 50 },
+      { x: wX+40,  w: 14, h: 38 },
+      { x: wX+54,  w: 22, h: 56 },
+      { x: wX+74,  w: 16, h: 42 },
+      { x: wX+88,  w: 14, h: 32 },
+      { x: wX+100, w: 22, h: 52 },
+      { x: wX+120, w: 14, h: 40 },
+    ];
+    for (const b of nearB) {
+      const x0 = Math.max(b.x, wX);
+      const x1 = Math.min(b.x + b.w, wX + wW);
+      if (x1 <= x0) continue;
+      const baseY = wY + wH - b.h;
+      rect(x0, baseY, x1 - x0, b.h, '#3b3552');
+      // lit windows (deterministic)
+      for (let by = baseY + 3; by < wY + wH - 2; by += 4) {
+        for (let bx = x0 + 2; bx < x1 - 1; bx += 4) {
+          if (((bx * 7 + by * 13) % 5) < 2) rect(bx, by, 1, 1, '#ffe9a8');
+        }
+      }
+    }
+    // window frame
+    rect(wX-2, wY-2, wW+4, 2, PAL.inkSoft);   // top
+    rect(wX-2, wY+wH, wW+4, 2, PAL.inkSoft);  // bottom
+    rect(wX-2, wY-2, 2, wH+4, PAL.inkSoft);   // left
+    rect(wX+wW, wY-2, 2, wH+4, PAL.inkSoft);  // right
+    rect(wX+(wW/2|0)-1, wY, 2, wH, PAL.inkSoft);   // vertical sash
+    rect(wX, wY+(wH/2|0)-1, wW, 2, PAL.inkSoft);   // horizontal sash
 
-    // Desk
+    // ---------- Diplomas shelf (left wall) ----------
+    const sX = 22, sY = 84;
+    rect(sX,    sY,    78, 3, '#a37a4d');
+    rect(sX,    sY+3,  78, 2, '#7a5a3a');
+    rect(sX+2,  sY+5,  2,  3, '#7a5a3a');
+    rect(sX+74, sY+5,  2,  3, '#7a5a3a');
+
+    // diploma 1 — wood frame, pink seal
+    {
+      const x = sX+2, y = sY-22;
+      rect(x,    y,    18, 22, '#a37a4d');
+      rect(x+1,  y+1,  16, 20, '#fff5e1');
+      rect(x+3,  y+4,  12, 1,  '#5b5278');
+      rect(x+3,  y+7,  10, 1,  '#5b5278');
+      rect(x+3,  y+10, 12, 1,  '#5b5278');
+      rect(x+3,  y+13, 8,  1,  '#5b5278');
+      rect(x+12, y+16, 3,  3,  '#ff5e7a');
+      rect(x+11, y+19, 1,  2,  '#ff5e7a');
+      rect(x+14, y+19, 1,  2,  '#ff5e7a');
+    }
+    // diploma 2 — dark frame, gold seal (taller)
+    {
+      const x = sX+24, y = sY-28;
+      rect(x,    y,    20, 28, '#3b3552');
+      rect(x+1,  y+1,  18, 26, '#fff5e1');
+      rect(x+3,  y+4,  14, 1, '#5b5278');
+      rect(x+3,  y+7,  12, 1, '#5b5278');
+      rect(x+3,  y+10, 14, 1, '#5b5278');
+      rect(x+3,  y+13, 10, 1, '#5b5278');
+      rect(x+3,  y+16, 12, 1, '#5b5278');
+      rect(x+13, y+20, 4, 3, '#ffd968');
+      rect(x+12, y+23, 2, 2, '#ffd968');
+      rect(x+15, y+23, 2, 2, '#ffd968');
+    }
+    // diploma 3 — white frame, purple seal
+    {
+      const x = sX+50, y = sY-24;
+      rect(x,    y,    20, 24, '#fff5e1');
+      rect(x+2,  y+2,  16, 20, '#fbe1d6');
+      rect(x+3,  y+4,  14, 1, '#5b5278');
+      rect(x+3,  y+7,  12, 1, '#5b5278');
+      rect(x+3,  y+10, 14, 1, '#5b5278');
+      rect(x+3,  y+13, 10, 1, '#5b5278');
+      rect(x+13, y+18, 3, 3, '#7a6cff');
+      rect(x+12, y+21, 1, 1, '#7a6cff');
+      rect(x+15, y+21, 1, 1, '#7a6cff');
+    }
+
+    // ---------- Minimalist floor lamp (left) ----------
+    const flX = 14;
+    rect(flX-3, 184, 8, 2, '#3b3552');     // base disc
+    rect(flX-1, 186, 4, 2, '#3b3552');
+    rect(flX,   108, 1, 78, '#5b5278');    // thin pole
+    rect(flX-4, 100, 9, 4,  '#3b3552');    // shade body
+    rect(flX-3, 104, 7, 2,  '#3b3552');
+    rect(flX-2, 106, 5, 2,  '#ffe9a8');    // lit bulb
+    // small light pool
+    ctx.fillStyle = 'rgba(255,233,168,0.18)';
+    ctx.fillRect(flX-12, 110, 28, 8);
+
+    // ---------- Desk ----------
     rect(30,140,160,8, PAL.officeDesk);
     rect(30,148,8,40, PAL.officeDeskShade);
     rect(182,148,8,40,PAL.officeDeskShade);
 
-    // Monitor
+    // ---------- Monitor ----------
     rect(70,108,60,36, PAL.officeMonitor);
     rect(74,112,52,28, '#7a6cff');
     rect(78,118,20,2,'#fff5e1');
@@ -859,48 +1189,37 @@
     rect(78,130,16,2,'#fff5e1');
     rect(94,140,12,4, PAL.officeMonitor);
 
-    // Chair
+    // ---------- Chair ----------
     rect(140,160,20,28, PAL.officeChair);
     rect(140,180,20,4, '#3b3552');
     rect(148,188,4,12,  '#3b3552');
 
-    // Plant on desk
+    // ---------- Plant on desk ----------
     rect(155,128,12,14, PAL.officePot);
     rect(150,114,22,16, PAL.officePlant);
     rect(158,106,4,10,  PAL.officePlant);
     rect(164,110,4,8,   PAL.officePlant);
 
-    // Right-corner shelf
+    // ---------- Right-corner shelf with camera ----------
     const shelfX = 252, shelfY = 92;
-    rect(shelfX, shelfY+2, 56, 3, '#7a5a3a');     // shelf bracket shadow
-    rect(shelfX, shelfY,   56, 3, '#a37a4d');     // shelf top
-    rect(shelfX+2, shelfY-1, 2, 1, '#7a5a3a');    // L bracket
+    rect(shelfX, shelfY+2, 56, 3, '#7a5a3a');
+    rect(shelfX, shelfY,   56, 3, '#a37a4d');
+    rect(shelfX+2, shelfY-1, 2, 1, '#7a5a3a');
     rect(shelfX+50,shelfY-1, 2, 1, '#7a5a3a');
 
-    // Camera on the shelf
     const camX = shelfX + 18, camY = shelfY - 14;
-    // body
     rect(camX,    camY+4,   24, 10, '#2a2540');
     rect(camX,    camY+3,   24, 1,  '#3b3552');
     rect(camX+2,  camY+13,  20, 1,  '#1a162e');
-    // top hump (viewfinder)
     rect(camX+6,  camY,     10, 4, '#2a2540');
     rect(camX+8,  camY-1,   6,  1, '#3b3552');
-    // shutter button
     rect(camX+18, camY,     3, 2,  '#ff5e7a');
-    // lens
     rect(camX+8,  camY+5,   8, 7, '#5b5278');
     rect(camX+9,  camY+6,   6, 5, '#3b3552');
     rect(camX+10, camY+7,   4, 3, '#7a6cff');
-    rect(camX+11, camY+7,   1, 1, '#fff5e1');     // glint
-    // strap
+    rect(camX+11, camY+7,   1, 1, '#fff5e1');
     rect(camX-2,  camY+5,   2, 3, '#5b5278');
     rect(camX+24, camY+5,   2, 3, '#5b5278');
-
-    // Wall art
-    rect(40,30,40,28, PAL.white);
-    rect(44,34,32,20, '#ffd2dd');
-    rect(50,40,8,8, PAL.officePlant);
   }
 
   function drawMountain() {
@@ -1159,6 +1478,11 @@
   function update(dt) {
     game.time += dt;
 
+    // Welcome backdrop animation
+    if (game.state === STATE.WELCOME || game.state === STATE.SUBHELP) {
+      tickWelcomeClouds(dt);
+    }
+
     if (game.state === STATE.PLAY) {
       // Decrement per-cloud timers
       tickCloud(game.cloud, dt);
@@ -1205,6 +1529,7 @@
                 game.deathReason = 'copyright';
                 spawnEvaporate(game.cloud, 25);
                 if (game.cloud2) spawnEvaporate(game.cloud2, 25);
+                bleepEvaporate();
               }
             } else if (!isFull) {
               game.score += f.points;
@@ -1390,6 +1715,7 @@
     if (game.state === STATE.WELCOME || game.state === STATE.SUBHELP) {
       // Solid pastel canvas behind the welcome dialog
       rect(0,0,W,H, PAL.welcomeBg);
+      drawWelcomeClouds();
     } else {
       drawBackground(currentBg());
     }
@@ -1459,21 +1785,41 @@
         const breaking = justLost && i === game.lives; // the one that just got lost
         return `<span class="heart ${lost ? 'lost' : ''} ${breaking ? 'breaking' : ''}">♥</span>`;
       }).join('');
+      if (justLost) {
+        // Make a separate heart element fall down through the playfield
+        const heartEls = heartsEl.querySelectorAll('.heart');
+        const lostEl   = heartEls[game.lives];
+        const wrap     = document.getElementById('wrap');
+        if (lostEl && wrap) {
+          const hr = lostEl.getBoundingClientRect();
+          const wr = wrap.getBoundingClientRect();
+          const fh = document.createElement('div');
+          fh.className = 'falling-heart';
+          fh.textContent = '♥';
+          fh.style.left = (hr.left - wr.left + hr.width / 2) + 'px';
+          fh.style.top  = (hr.top  - wr.top) + 'px';
+          fh.style.setProperty('--fall', (wr.height + 80) + 'px');
+          wrap.appendChild(fh);
+          setTimeout(() => fh.remove(), 1900);
+        }
+      }
       game.lastLives = game.lives;
     }
     // Update hint bar
+    const musicTag = ' • <span class="key">M</span> MUSIC: ' + (musicEnabled ? 'ON' : 'OFF');
     if (isMulti() && playing) {
       hintEl.innerHTML =
         '<span class="key">P1</span> <span class="arrow">◄</span><span class="arrow">►</span> ' +
         '<span class="key">P2</span> <span class="key">A</span><span class="key">D</span> • ' +
-        '<span class="key">ENTER</span> PAUSE • ' +
-        '<span class="key">SPACE</span> SELECT';
+        '<span class="key">ENTER</span> PAUSE' +
+        musicTag;
     } else {
       hintEl.innerHTML =
         '<span class="arrow">◄</span><span class="arrow">►</span> ' +
         '<span class="key">MOVE</span> • ' +
         '<span class="key">ENTER</span> PAUSE • ' +
-        '<span class="key">SPACE</span> SELECT';
+        '<span class="key">SPACE</span> SELECT' +
+        musicTag;
     }
     if (!playing) return;
 
